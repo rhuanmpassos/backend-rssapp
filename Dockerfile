@@ -10,18 +10,21 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Install OpenSSL (required by Prisma 5+)
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
+# Copy package files first (better cache)
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Install dependencies
+# Install all dependencies (including devDependencies for build)
 RUN npm ci
-
-# Copy source code
-COPY . .
 
 # Generate Prisma client
 RUN npx prisma generate
+
+# Copy source code
+COPY . .
 
 # Build the application
 RUN npm run build
@@ -31,8 +34,9 @@ RUN npm run build
 # ========================================
 FROM node:20-slim AS production
 
-# Install dependencies for Playwright
+# Install system dependencies for Playwright + OpenSSL for Prisma
 RUN apt-get update && apt-get install -y \
+    openssl \
     wget \
     gnupg \
     ca-certificates \
@@ -60,36 +64,46 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Create non-root user BEFORE installing dependencies
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 --home /home/nestjs nestjs && \
+    mkdir -p /home/nestjs/.cache && \
+    chown -R nestjs:nodejs /home/nestjs
+
 # Copy package files
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Install production dependencies only
-RUN npm ci --only=production
-
-# Install Playwright browsers
-RUN npx playwright install chromium --with-deps
+# Install production dependencies only (--omit=dev is the modern way)
+RUN npm ci --omit=dev
 
 # Generate Prisma client
 RUN npx prisma generate
 
+# Install Playwright browsers (as root, before switching user)
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN npx playwright install chromium --with-deps && \
+    chmod -R 755 /ms-playwright
+
 # Copy built application from builder
 COPY --from=builder /app/dist ./dist
 
-# Create non-root user for security
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nestjs
+# Set ownership of app directory
+RUN chown -R nestjs:nodejs /app
+
+# Switch to non-root user
 USER nestjs
+
+# Set HOME for Playwright and other tools
+ENV HOME=/home/nestjs
+ENV NODE_ENV=production
 
 # Expose port
 EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/v1/health || exit 1
 
-# Start the application
-CMD ["node", "dist/main"]
-
-
-
+# Run migrations and start the application
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
