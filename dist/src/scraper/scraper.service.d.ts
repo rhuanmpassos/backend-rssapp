@@ -1,0 +1,30 @@
+import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../common/prisma/prisma.service';
+import { RedisService } from '../common/redis/redis.service';
+import { RssParserService } from './rss-parser.service';
+import { PlaywrightService } from './playwright.service';
+import { RobotsService } from './robots.service';
+import { FeedService } from '../modules/feed/feed.service';
+import { FeedItemService } from '../modules/feed/feed-item.service';
+import { PushService } from '../modules/push/push.service';
+export declare class ScraperService {
+    private prisma;
+    private redis;
+    private configService;
+    private rssParser;
+    private playwright;
+    private robots;
+    private feedService;
+    private feedItemService;
+    private pushService;
+    private readonly logger;
+    private readonly politenessDelay;
+    constructor(prisma: PrismaService, redis: RedisService, configService: ConfigService, rssParser: RssParserService, playwright: PlaywrightService, robots: RobotsService, feedService: FeedService, feedItemService: FeedItemService, pushService: PushService);
+    queueFeedDiscovery(feedId: string): Promise<void>;
+    queueFeedScrape(feedId: string): Promise<void>;
+    discoverAndScrapeFeed(feedId: string): Promise<void>;
+    scrapeFeed(feedId: string): Promise<void>;
+    private discoverRssFeed;
+    scrapeFeedFromHtml(feedId: string, siteUrl: string): Promise<void>;
+    private delay;
+}

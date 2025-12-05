@@ -1,0 +1,122 @@
+# ========================================
+# Render.com Blueprint Configuration
+# ========================================
+# Deploy with: render blueprint sync
+# Or connect your GitHub repo and Render will auto-detect this file
+
+services:
+  # ========================================
+  # API Service (Web)
+  # ========================================
+  - type: web
+    name: rss-aggregator-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: oregon
+    plan: starter # or free for testing
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: API_PREFIX
+        value: api/v1
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rss-aggregator-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: YOUTUBE_API_KEY
+        sync: false # Set manually in dashboard
+      - key: WEBSUB_VERIFY_TOKEN
+        generateValue: true
+      - key: WEBSUB_CALLBACK_URL
+        value: https://rss-aggregator-api.onrender.com/api/v1/websub/callback
+      - key: EXPO_ACCESS_TOKEN
+        sync: false # Set manually in dashboard
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rss-aggregator-redis
+          property: connectionString
+      - key: SENTRY_DSN
+        sync: false # Set manually in dashboard
+      - key: PLAYWRIGHT_TIMEOUT
+        value: "30000"
+      - key: USER_AGENT
+        value: RSSApp/1.0 (+https://github.com/your-repo)
+
+  # ========================================
+  # Worker Service (Background Jobs)
+  # ========================================
+  - type: worker
+    name: rss-aggregator-worker
+    env: docker
+    dockerfilePath: ./Dockerfile.worker
+    dockerContext: .
+    region: oregon
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rss-aggregator-db
+          property: connectionString
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: rss-aggregator-api
+          envVarKey: JWT_SECRET
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: EXPO_ACCESS_TOKEN
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rss-aggregator-redis
+          property: connectionString
+      - key: SENTRY_DSN
+        sync: false
+      - key: PLAYWRIGHT_TIMEOUT
+        value: "30000"
+      - key: USER_AGENT
+        value: RSSApp/1.0 (+https://github.com/your-repo)
+      - key: CRON_FEED_INTERVAL_MINUTES
+        value: "10"
+      - key: CRON_YOUTUBE_INTERVAL_MINUTES
+        value: "5"
+
+# ========================================
+# Databases
+# ========================================
+databases:
+  - name: rss-aggregator-db
+    databaseName: rssapp
+    user: rssapp
+    plan: starter # or free for testing
+    region: oregon
+
+# ========================================
+# Redis (for caching and locks)
+# ========================================
+# Note: Render doesn't have native Redis, use Upstash instead
+# Configure REDIS_URL manually with your Upstash credentials
+# Or use Redis from another provider
+
+# ========================================
+# Alternative: Use External Services
+# ========================================
+# For production, consider:
+# - Supabase for PostgreSQL (better free tier)
+# - Upstash for Redis (serverless, good free tier)
+# - Configure these as manual env vars in the dashboard
+
+
+

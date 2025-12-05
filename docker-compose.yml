@@ -1,0 +1,117 @@
+# ========================================
+# Docker Compose for Local Development
+# ========================================
+# Run with: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # ========================================
+  # PostgreSQL Database
+  # ========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: rssapp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rssapp
+      POSTGRES_PASSWORD: rssapp_dev_password
+      POSTGRES_DB: rssapp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rssapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================================
+  # Redis Cache
+  # ========================================
+  redis:
+    image: redis:7-alpine
+    container_name: rssapp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================================
+  # API Service
+  # ========================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rssapp-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://rssapp:rssapp_dev_password@postgres:5432/rssapp?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-secret-change-in-production
+      JWT_EXPIRES_IN: 7d
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY}
+      WEBSUB_VERIFY_TOKEN: dev-verify-token
+      WEBSUB_CALLBACK_URL: http://localhost:3000/api/v1/websub/callback
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN}
+      PLAYWRIGHT_TIMEOUT: "30000"
+      USER_AGENT: RSSApp/1.0 (Local Development)
+    volumes:
+      - ./src:/app/src:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ========================================
+  # Worker Service
+  # ========================================
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: rssapp-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://rssapp:rssapp_dev_password@postgres:5432/rssapp?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-secret-change-in-production
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY}
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN}
+      PLAYWRIGHT_TIMEOUT: "30000"
+      USER_AGENT: RSSApp/1.0 (Local Development)
+      CRON_FEED_INTERVAL_MINUTES: "10"
+      CRON_YOUTUBE_INTERVAL_MINUTES: "5"
+    volumes:
+      - ./src:/app/src:ro
+
+volumes:
+  postgres_data:
+  redis_data:
+
+
+

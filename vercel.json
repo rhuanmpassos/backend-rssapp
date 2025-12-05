@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build && npx prisma generate",
+  "outputDirectory": "dist",
+  "installCommand": "npm install",
+  "framework": null,
+  "functions": {
+    "dist/main.js": {
+      "memory": 1024,
+      "maxDuration": 30
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/v1/(.*)",
+      "dest": "/dist/main.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/dist/main.js"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
+
