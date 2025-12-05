@@ -99,4 +99,4 @@ ENV HOME=/home/nestjs
 ENV NODE_ENV=production
 
 # Start the worker
-CMD ["node", "dist/workers/main.worker"]
+CMD ["node", "dist/src/workers/main.worker.js"]
