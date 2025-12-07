@@ -228,10 +228,11 @@ export class YoutubeiService implements OnModuleInit {
   }
 
   /**
-   * Fallback method: check if video is live by fetching the video page directly
+   * Fallback method: check video info by fetching the video page directly
    * This works even when Youtubei.js returns undefined (common in datacenters)
+   * Returns isLive, isLiveContent, and duration
    */
-  private async checkIsLiveViaHttp(videoId: string): Promise<{ isLive: boolean; isLiveContent: boolean } | null> {
+  private async checkIsLiveViaHttp(videoId: string): Promise<{ isLive: boolean; isLiveContent: boolean; duration: number } | null> {
     try {
       const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
         headers: {
@@ -252,14 +253,32 @@ export class YoutubeiService implements OnModuleInit {
         html.includes('"isLiveBroadcast":true') ||
         html.includes('LIVE_STREAM_OFFLINE') === false && html.includes('"liveBroadcastDetails"');
 
+      // Check if it's a VOD (recorded live stream)
       const isLiveContent = html.includes('"isLiveContent":true') ||
         html.includes('"liveBroadcastDetails"');
+
+      // Extract duration from the page
+      // Try lengthSeconds first (most reliable)
+      let duration = 0;
+      const lengthSecondsMatch = html.match(/"lengthSeconds":"(\d+)"/);
+      if (lengthSecondsMatch) {
+        duration = parseInt(lengthSecondsMatch[1], 10);
+      } else {
+        // Try approxDurationMs
+        const durationMsMatch = html.match(/"approxDurationMs":"(\d+)"/);
+        if (durationMsMatch) {
+          duration = Math.floor(parseInt(durationMsMatch[1], 10) / 1000);
+        }
+      }
 
       if (isLive) {
         this.logger.log(`🔴 HTTP fallback detected live video: ${videoId}`);
       }
+      if (isLiveContent && !isLive) {
+        this.logger.debug(`📼 HTTP fallback detected VOD: ${videoId}, duration: ${duration}s`);
+      }
 
-      return { isLive, isLiveContent };
+      return { isLive, isLiveContent, duration };
     } catch (error) {
       this.logger.debug(`HTTP fallback check failed for ${videoId}: ${error}`);
       return null;
@@ -286,7 +305,7 @@ export class YoutubeiService implements OnModuleInit {
 
       let isLive = basicInfo?.is_live === true;
       let isLiveContent = basicInfo?.is_live_content === true;
-      const duration = basicInfo?.duration || 0;
+      let duration = basicInfo?.duration || 0;
 
       // If Youtubei.js returns undefined for live fields (common in datacenters),
       // use HTTP fallback to check
@@ -296,6 +315,10 @@ export class YoutubeiService implements OnModuleInit {
         if (httpResult) {
           isLive = httpResult.isLive;
           isLiveContent = httpResult.isLiveContent;
+          // Also use duration from HTTP fallback if Youtubei.js returned 0
+          if (duration === 0 && httpResult.duration > 0) {
+            duration = httpResult.duration;
+          }
         }
       }
 
