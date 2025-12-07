@@ -29,10 +29,10 @@ export class YoutubeiService implements OnModuleInit {
       }
 
       // Create Innertube (will automatically use HTTPS_PROXY env var)
-      // Note: retrieve_player: false to avoid 403 from YouTube player endpoint
+      // With residential proxy, we can use retrieve_player: true to get full video data
       this.youtube = await Innertube.create({
         generate_session_locally: true,
-        retrieve_player: false,
+        retrieve_player: true, // Now enabled with residential proxy for full is_live, duration data
       });
 
       this.logger.log('Youtubei.js initialized successfully');
