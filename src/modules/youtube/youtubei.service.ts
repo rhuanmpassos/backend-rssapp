@@ -8,7 +8,15 @@ export class YoutubeiService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      this.youtube = await Innertube.create();
+      // Create Innertube with specific options for production/datacenter environments
+      this.youtube = await Innertube.create({
+        // Use a realistic user-agent to avoid detection
+        generate_session_locally: true,
+        // Enable caching to reduce requests
+        cache: undefined, // Let it use default caching
+        // Retrieve player for deciphering (important for video info)
+        retrieve_player: true,
+      });
       this.logger.log('Youtubei.js initialized successfully');
     } catch (error) {
       this.logger.warn(`Failed to initialize Youtubei.js: ${error}`);
@@ -61,6 +69,16 @@ export class YoutubeiService implements OnModuleInit {
             this.logger.log(`🔴 Active live found (no duration): ${videoId} - ${basicInfo?.title}`);
             return videoId;
           }
+
+          // Fallback: if Youtubei.js returns undefined, try HTTP
+          if (basicInfo?.is_live === undefined && basicInfo?.is_live_content === undefined) {
+            this.logger.debug(`Youtubei.js returned undefined for ${videoId}, trying HTTP fallback in getActiveLiveVideoId`);
+            const httpResult = await this.checkIsLiveViaHttp(videoId);
+            if (httpResult?.isLive) {
+              this.logger.log(`🔴 Active live found via HTTP fallback: ${videoId}`);
+              return videoId;
+            }
+          }
         } catch (videoError) {
           this.logger.warn(`Failed to get video info for ${videoId}: ${videoError}`);
         }
@@ -69,10 +87,61 @@ export class YoutubeiService implements OnModuleInit {
       this.logger.log(`No active live found for channel ${channelId}`);
       return null;
     } catch (error) {
+      // If getLiveStreams() fails (Tab "streams" not found), try fetching the channel's /live page
+      const errorMsg = String(error);
+      if (errorMsg.includes('Tab') && errorMsg.includes('not found')) {
+        this.logger.debug(`getLiveStreams failed for channel ${channelId}, trying /live page fallback`);
+        return this.getActiveLiveViaChannelLivePage(channelId);
+      }
+
       this.logger.warn(`Error checking active live for channel ${channelId}: ${error}`);
       return null;
     }
   }
+
+  /**
+   * Fallback: Check for active live by fetching the channel's /live page
+   * This works when the channel doesn't have a "streams" tab
+   */
+  private async getActiveLiveViaChannelLivePage(channelId: string): Promise<string | null> {
+    try {
+      const liveUrl = `https://www.youtube.com/channel/${channelId}/live`;
+      this.logger.log(`Checking /live page for channel: ${channelId}`);
+
+      const response = await fetch(liveUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        redirect: 'follow',
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const html = await response.text();
+
+      // Check if there's an active live and extract video ID
+      const isLive = html.includes('"isLive":true') || html.includes('"isLiveNow":true');
+
+      if (isLive) {
+        // Try to extract video ID from the page
+        const videoIdMatch = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
+        if (videoIdMatch) {
+          const videoId = videoIdMatch[1];
+          this.logger.log(`🔴 Active live found via /live page: ${videoId}`);
+          return videoId;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.debug(`Failed to check /live page for channel ${channelId}: ${error}`);
+      return null;
+    }
+  }
+
 
   /**
    * Get video info for a live stream
@@ -138,6 +207,45 @@ export class YoutubeiService implements OnModuleInit {
   }
 
   /**
+   * Fallback method: check if video is live by fetching the video page directly
+   * This works even when Youtubei.js returns undefined (common in datacenters)
+   */
+  private async checkIsLiveViaHttp(videoId: string): Promise<{ isLive: boolean; isLiveContent: boolean } | null> {
+    try {
+      const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const html = await response.text();
+
+      // Check for live indicators in the HTML
+      const isLive = html.includes('"isLive":true') ||
+        html.includes('"isLiveNow":true') ||
+        html.includes('"isLiveBroadcast":true') ||
+        html.includes('LIVE_STREAM_OFFLINE') === false && html.includes('"liveBroadcastDetails"');
+
+      const isLiveContent = html.includes('"isLiveContent":true') ||
+        html.includes('"liveBroadcastDetails"');
+
+      if (isLive) {
+        this.logger.log(`🔴 HTTP fallback detected live video: ${videoId}`);
+      }
+
+      return { isLive, isLiveContent };
+    } catch (error) {
+      this.logger.debug(`HTTP fallback check failed for ${videoId}: ${error}`);
+      return null;
+    }
+  }
+
+  /**
    * Get video type info for batch classification
    * Returns basic info needed to classify video type
    */
@@ -155,10 +263,25 @@ export class YoutubeiService implements OnModuleInit {
       const videoInfo = await this.youtube.getInfo(videoId);
       const basicInfo = videoInfo.basic_info;
 
+      let isLive = basicInfo?.is_live === true;
+      let isLiveContent = basicInfo?.is_live_content === true;
+      const duration = basicInfo?.duration || 0;
+
+      // If Youtubei.js returns undefined for live fields (common in datacenters),
+      // use HTTP fallback to check
+      if (basicInfo?.is_live === undefined && basicInfo?.is_live_content === undefined) {
+        this.logger.debug(`Youtubei.js returned undefined for live fields on ${videoId}, trying HTTP fallback`);
+        const httpResult = await this.checkIsLiveViaHttp(videoId);
+        if (httpResult) {
+          isLive = httpResult.isLive;
+          isLiveContent = httpResult.isLiveContent;
+        }
+      }
+
       return {
-        isLive: basicInfo?.is_live === true,
-        isLiveContent: basicInfo?.is_live_content === true,
-        duration: basicInfo?.duration || 0,
+        isLive,
+        isLiveContent,
+        duration,
         title: basicInfo?.title || '',
       };
     } catch (error) {
@@ -167,3 +290,4 @@ export class YoutubeiService implements OnModuleInit {
     }
   }
 }
+
