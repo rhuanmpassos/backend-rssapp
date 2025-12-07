@@ -8,18 +8,39 @@ export class YoutubeiService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      // Create Innertube with specific options for production/datacenter environments
+      // Check if proxy is configured via environment variables
+      const proxyHost = process.env.PROXY_HOST || 'brd.superproxy.io';
+      const proxyPort = process.env.PROXY_PORT || '33335';
+      const proxyUser = process.env.PROXY_USER;
+      const proxyPass = process.env.PROXY_PASS;
+
+      if (proxyUser && proxyPass) {
+        // Configure proxy via environment variables (works with Node.js native fetch/undici)
+        const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyHost}:${proxyPort}`;
+        process.env.HTTPS_PROXY = proxyUrl;
+        process.env.HTTP_PROXY = proxyUrl;
+
+        // Disable SSL verification for Bright Data proxy (uses self-signed certs)
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+        this.logger.log(`Youtubei.js configured with residential proxy: ${proxyHost}:${proxyPort}`);
+      } else {
+        this.logger.warn('No proxy configured - Youtubei.js may be blocked by YouTube in datacenter environments');
+      }
+
+      // Create Innertube (will automatically use HTTPS_PROXY env var)
+      // Note: retrieve_player: false to avoid 403 from YouTube player endpoint
       this.youtube = await Innertube.create({
-        // Use a realistic user-agent to avoid detection
         generate_session_locally: true,
-        // Enable caching to reduce requests
-        cache: undefined, // Let it use default caching
-        // Retrieve player for deciphering (important for video info)
-        retrieve_player: true,
+        retrieve_player: false,
       });
+
       this.logger.log('Youtubei.js initialized successfully');
-    } catch (error) {
-      this.logger.warn(`Failed to initialize Youtubei.js: ${error}`);
+    } catch (error: any) {
+      this.logger.warn(`Failed to initialize Youtubei.js: ${error?.message || error}`);
+      if (error?.cause) {
+        this.logger.warn(`Cause: ${error.cause?.message || error.cause}`);
+      }
     }
   }
 

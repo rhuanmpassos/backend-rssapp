@@ -50,6 +50,11 @@ services:
         value: "30000"
       - key: USER_AGENT
         value: RSSApp/1.0 (+https://github.com/your-repo)
+      # Residential proxy for Youtubei.js (Bright Data)
+      - key: PROXY_USER
+        sync: false # Set manually in dashboard
+      - key: PROXY_PASS
+        sync: false # Set manually in dashboard
 
   # ========================================
   # Worker Service (Background Jobs)
@@ -92,6 +97,11 @@ services:
         value: "10"
       - key: CRON_YOUTUBE_INTERVAL_MINUTES
         value: "5"
+      # Residential proxy for Youtubei.js (Bright Data)
+      - key: PROXY_USER
+        sync: false # Set manually in dashboard
+      - key: PROXY_PASS
+        sync: false # Set manually in dashboard
 
 # ========================================
 # Databases

@@ -4,12 +4,14 @@ export declare class YoutubeiService implements OnModuleInit {
     private youtube;
     onModuleInit(): Promise<void>;
     getActiveLiveVideoId(channelId: string): Promise<string | null>;
+    private getActiveLiveViaChannelLivePage;
     getLiveVideoInfo(videoId: string): Promise<{
         title: string;
         description: string;
         thumbnail: string;
     } | null>;
     getVideoType(videoId: string): Promise<'video' | 'short' | 'vod' | 'live' | null>;
+    private checkIsLiveViaHttp;
     getVideoBasicInfo(videoId: string): Promise<{
         isLive: boolean;
         isLiveContent: boolean;
