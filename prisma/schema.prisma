@@ -309,9 +309,16 @@ model YouTubeVideo {
   title        String
   description  String?   // First 500 chars only (NO LLM summary!)
   thumbnailUrl String?   @map("thumbnail_url")
-  duration     String?   // ISO 8601 duration (PT1H2M10S)
+  duration     String?   // ISO 8601 duration (PT1H2M10S) - legacy field
   publishedAt  DateTime  @map("published_at")
   fetchedAt    DateTime  @default(now()) @map("fetched_at")
+  
+  // Video classification fields (populated during cron)
+  videoType     String?   @map("video_type")     // 'video' | 'short' | 'vod' | 'live'
+  isLive        Boolean   @default(false) @map("is_live")
+  isLiveContent Boolean   @default(false) @map("is_live_content")
+  durationSecs  Int?      @map("duration_secs")  // Duration in seconds
+  classifiedAt  DateTime? @map("classified_at")  // When classification was last updated
   
   // Relations
   channel      YouTubeChannel @relation(fields: [channelDbId], references: [id], onDelete: Cascade)
@@ -319,6 +326,8 @@ model YouTubeVideo {
   @@index([channelDbId])
   @@index([publishedAt])
   @@index([fetchedAt])
+  @@index([videoType])
+  @@index([isLive])
   @@map("youtube_videos")
 }
 

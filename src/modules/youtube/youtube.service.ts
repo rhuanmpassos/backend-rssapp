@@ -681,7 +681,32 @@ export class YouTubeService {
             continue;
           }
 
-          // Create new video
+          // Get video classification info
+          const videoInfo = await this.youtubeiService.getVideoBasicInfo(videoId);
+
+          let isLive = false;
+          let isLiveContent = false;
+          let durationSecs: number | null = null;
+          let videoType: string = 'video';
+
+          if (videoInfo) {
+            isLive = videoInfo.isLive;
+            isLiveContent = videoInfo.isLiveContent;
+            durationSecs = videoInfo.duration > 0 ? videoInfo.duration : null;
+
+            // Classify video type
+            if (isLive) {
+              videoType = 'live';
+            } else if (isLiveContent) {
+              videoType = 'vod';
+            } else if (durationSecs && durationSecs <= 90) {
+              videoType = 'short';
+            } else {
+              videoType = 'video';
+            }
+          }
+
+          // Create new video with classification
           await this.prisma.youTubeVideo.create({
             data: {
               videoId,
@@ -691,10 +716,17 @@ export class YouTubeService {
               thumbnailUrl: item.thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
               duration: null,
               publishedAt: item.publishedAt ? new Date(item.publishedAt) : new Date(),
+              // Classification fields
+              videoType,
+              isLive,
+              isLiveContent,
+              durationSecs,
+              classifiedAt: new Date(),
             },
           });
 
           results.created++;
+          this.logger.debug(`New video: ${videoId} → ${videoType}`);
         } catch (error) {
           this.logger.error(`Failed to save video from RSS: ${error}`);
           results.skipped++;
@@ -713,6 +745,95 @@ export class YouTubeService {
       this.logger.error(`Failed to fetch RSS feed for ${channel.title}: ${error}`);
       return { created: 0, skipped: 0 };
     }
+  }
+
+  /**
+   * Reclassify videos that need updating
+   * - Lives that ended (need to become VODs)
+   * - Videos without classification (legacy data)
+   */
+  async reclassifyVideos(limit: number = 50) {
+    // Find videos that need reclassification:
+    // 1. isLive = true (may have ended)
+    // 2. classifiedAt is null (never classified)
+    // 3. classifiedAt is older than 1 hour and isLive was true
+    const videosToReclassify = await this.prisma.youTubeVideo.findMany({
+      where: {
+        OR: [
+          { isLive: true }, // Active lives - check if still live
+          { classifiedAt: null }, // Never classified
+          { videoType: null }, // Missing classification
+        ],
+      },
+      orderBy: { fetchedAt: 'desc' },
+      take: limit,
+    });
+
+    if (videosToReclassify.length === 0) {
+      return { updated: 0, unchanged: 0 };
+    }
+
+    this.logger.log(`Reclassifying ${videosToReclassify.length} videos`);
+
+    let updated = 0;
+    let unchanged = 0;
+
+    for (const video of videosToReclassify) {
+      try {
+        const info = await this.youtubeiService.getVideoBasicInfo(video.videoId);
+
+        if (!info) {
+          unchanged++;
+          continue;
+        }
+
+        // Classify
+        let videoType = 'video';
+        if (info.isLive) {
+          videoType = 'live';
+        } else if (info.isLiveContent) {
+          videoType = 'vod';
+        } else if (info.duration > 0 && info.duration <= 90) {
+          videoType = 'short';
+        }
+
+        const durationSecs = info.duration > 0 ? info.duration : null;
+
+        // Check if changed
+        if (
+          video.videoType === videoType &&
+          video.isLive === info.isLive &&
+          video.isLiveContent === info.isLiveContent
+        ) {
+          // Only update classifiedAt if nothing changed
+          await this.prisma.youTubeVideo.update({
+            where: { id: video.id },
+            data: { classifiedAt: new Date() },
+          });
+          unchanged++;
+        } else {
+          // Update classification
+          await this.prisma.youTubeVideo.update({
+            where: { id: video.id },
+            data: {
+              videoType,
+              isLive: info.isLive,
+              isLiveContent: info.isLiveContent,
+              durationSecs,
+              classifiedAt: new Date(),
+            },
+          });
+          this.logger.log(`Reclassified ${video.videoId}: ${video.videoType || 'null'} → ${videoType}`);
+          updated++;
+        }
+      } catch (error) {
+        this.logger.debug(`Failed to reclassify ${video.videoId}: ${error}`);
+        unchanged++;
+      }
+    }
+
+    this.logger.log(`Reclassification complete: ${updated} updated, ${unchanged} unchanged`);
+    return { updated, unchanged };
   }
 }
 

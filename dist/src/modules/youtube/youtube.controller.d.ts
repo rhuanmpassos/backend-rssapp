@@ -114,7 +114,10 @@ export declare class YouTubeController {
             publishedAt: Date;
             fetchedAt: Date;
             videoId: string;
+            isLiveContent: boolean;
             channelDbId: string;
+            durationSecs: number | null;
+            classifiedAt: Date | null;
         }[];
         meta: {
             page: number;

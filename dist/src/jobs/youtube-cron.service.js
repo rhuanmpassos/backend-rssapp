@@ -96,6 +96,26 @@ let YouTubeCronService = YouTubeCronService_1 = class YouTubeCronService {
             this.logger.error(`Quota check error: ${error}`);
         }
     }
+    async handleVideoReclassification() {
+        const hasLock = await this.redis.acquireLock('cron:video-reclassification', 300);
+        if (!hasLock) {
+            this.logger.debug('Another instance is running video reclassification');
+            return;
+        }
+        try {
+            const startTime = Date.now();
+            this.logger.log('Starting video reclassification');
+            const result = await this.youtubeService.reclassifyVideos(30);
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+            this.logger.log(`Video reclassification completed in ${duration}s: ${result.updated} updated, ${result.unchanged} unchanged`);
+        }
+        catch (error) {
+            this.logger.error(`Video reclassification error: ${error}`);
+        }
+        finally {
+            await this.redis.releaseLock('cron:video-reclassification');
+        }
+    }
     async processInBatches(items, concurrency, processor) {
         const chunks = [];
         for (let i = 0; i < items.length; i += concurrency) {
@@ -125,6 +145,12 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
 ], YouTubeCronService.prototype, "handleQuotaReset", null);
+__decorate([
+    (0, schedule_1.Cron)('*/5 * * * *'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], YouTubeCronService.prototype, "handleVideoReclassification", null);
 exports.YouTubeCronService = YouTubeCronService = YouTubeCronService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,

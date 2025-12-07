@@ -33,7 +33,7 @@ let YoutubeiService = YoutubeiService_1 = class YoutubeiService {
             }
             this.youtube = await youtubei_js_1.default.create({
                 generate_session_locally: true,
-                retrieve_player: false,
+                retrieve_player: true,
             });
             this.logger.log('Youtubei.js initialized successfully');
         }
@@ -185,15 +185,32 @@ let YoutubeiService = YoutubeiService_1 = class YoutubeiService {
             }
             const html = await response.text();
             const isLive = html.includes('"isLive":true') ||
-                html.includes('"isLiveNow":true') ||
-                html.includes('"isLiveBroadcast":true') ||
-                html.includes('LIVE_STREAM_OFFLINE') === false && html.includes('"liveBroadcastDetails"');
-            const isLiveContent = html.includes('"isLiveContent":true') ||
-                html.includes('"liveBroadcastDetails"');
-            if (isLive) {
-                this.logger.log(`🔴 HTTP fallback detected live video: ${videoId}`);
+                html.includes('"isLiveNow":true');
+            const isLiveContent = html.includes('"isLiveContent":true');
+            let duration = 0;
+            const lengthSecondsMatch = html.match(/"lengthSeconds":"(\d+)"/);
+            if (lengthSecondsMatch) {
+                duration = parseInt(lengthSecondsMatch[1], 10);
             }
-            return { isLive, isLiveContent };
+            else {
+                const durationMsMatch = html.match(/"approxDurationMs":"(\d+)"/);
+                if (durationMsMatch) {
+                    duration = Math.floor(parseInt(durationMsMatch[1], 10) / 1000);
+                }
+            }
+            if (isLive) {
+                this.logger.log(`🔴 HTTP fallback: LIVE - ${videoId}`);
+            }
+            else if (isLiveContent) {
+                this.logger.log(`📼 HTTP fallback: VOD - ${videoId}, duration: ${duration}s`);
+            }
+            else if (duration > 0 && duration <= 90) {
+                this.logger.debug(`📱 HTTP fallback: SHORT - ${videoId}, duration: ${duration}s`);
+            }
+            else if (duration > 90) {
+                this.logger.debug(`🎬 HTTP fallback: VIDEO - ${videoId}, duration: ${duration}s`);
+            }
+            return { isLive, isLiveContent, duration };
         }
         catch (error) {
             this.logger.debug(`HTTP fallback check failed for ${videoId}: ${error}`);
@@ -209,13 +226,16 @@ let YoutubeiService = YoutubeiService_1 = class YoutubeiService {
             const basicInfo = videoInfo.basic_info;
             let isLive = basicInfo?.is_live === true;
             let isLiveContent = basicInfo?.is_live_content === true;
-            const duration = basicInfo?.duration || 0;
+            let duration = basicInfo?.duration || 0;
             if (basicInfo?.is_live === undefined && basicInfo?.is_live_content === undefined) {
                 this.logger.debug(`Youtubei.js returned undefined for live fields on ${videoId}, trying HTTP fallback`);
                 const httpResult = await this.checkIsLiveViaHttp(videoId);
                 if (httpResult) {
                     isLive = httpResult.isLive;
                     isLiveContent = httpResult.isLiveContent;
+                    if (duration === 0 && httpResult.duration > 0) {
+                        duration = httpResult.duration;
+                    }
                 }
             }
             return {

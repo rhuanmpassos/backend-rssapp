@@ -247,35 +247,42 @@ export class YoutubeiService implements OnModuleInit {
 
       const html = await response.text();
 
-      // Check for live indicators in the HTML
+      // === PADRÕES IDENTIFICADOS POR TESTES ===
+      // LIVE: isLive:true OU isLiveNow:true (duration = 0)
+      // VOD: isLiveContent:true (com duration > 0)
+      // VIDEO: isLiveContent:false + duration > 90s
+      // SHORT: isLiveContent:false + duration <= 90s
+
+      // Check for live indicators
       const isLive = html.includes('"isLive":true') ||
-        html.includes('"isLiveNow":true') ||
-        html.includes('"isLiveBroadcast":true') ||
-        html.includes('LIVE_STREAM_OFFLINE') === false && html.includes('"liveBroadcastDetails"');
+        html.includes('"isLiveNow":true');
 
       // Check if it's a VOD (recorded live stream)
-      const isLiveContent = html.includes('"isLiveContent":true') ||
-        html.includes('"liveBroadcastDetails"');
+      // isLiveContent:true is the definitive indicator
+      const isLiveContent = html.includes('"isLiveContent":true');
 
       // Extract duration from the page
-      // Try lengthSeconds first (most reliable)
       let duration = 0;
       const lengthSecondsMatch = html.match(/"lengthSeconds":"(\d+)"/);
       if (lengthSecondsMatch) {
         duration = parseInt(lengthSecondsMatch[1], 10);
       } else {
-        // Try approxDurationMs
+        // Try approxDurationMs as fallback
         const durationMsMatch = html.match(/"approxDurationMs":"(\d+)"/);
         if (durationMsMatch) {
           duration = Math.floor(parseInt(durationMsMatch[1], 10) / 1000);
         }
       }
 
+      // Log classification result
       if (isLive) {
-        this.logger.log(`🔴 HTTP fallback detected live video: ${videoId}`);
-      }
-      if (isLiveContent && !isLive) {
-        this.logger.debug(`📼 HTTP fallback detected VOD: ${videoId}, duration: ${duration}s`);
+        this.logger.log(`🔴 HTTP fallback: LIVE - ${videoId}`);
+      } else if (isLiveContent) {
+        this.logger.log(`📼 HTTP fallback: VOD - ${videoId}, duration: ${duration}s`);
+      } else if (duration > 0 && duration <= 90) {
+        this.logger.debug(`📱 HTTP fallback: SHORT - ${videoId}, duration: ${duration}s`);
+      } else if (duration > 90) {
+        this.logger.debug(`🎬 HTTP fallback: VIDEO - ${videoId}, duration: ${duration}s`);
       }
 
       return { isLive, isLiveContent, duration };

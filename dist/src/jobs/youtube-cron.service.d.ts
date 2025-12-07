@@ -19,6 +19,7 @@ export declare class YouTubeCronService {
     constructor(prisma: PrismaService, redis: RedisService, configService: ConfigService, youtubeService: YouTubeService, youtubeApi: YouTubeApiService, pushService: PushService);
     handleYouTubePolling(): Promise<void>;
     handleQuotaReset(): Promise<void>;
+    handleVideoReclassification(): Promise<void>;
     private processInBatches;
     private delay;
 }

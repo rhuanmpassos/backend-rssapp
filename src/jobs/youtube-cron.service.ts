@@ -147,6 +147,31 @@ export class YouTubeCronService {
     }
   }
 
+  // Reclassify videos every 5 minutes
+  // Updates: lives that ended → VODs, legacy videos without classification
+  @Cron('*/5 * * * *')
+  async handleVideoReclassification() {
+    const hasLock = await this.redis.acquireLock('cron:video-reclassification', 300);
+    if (!hasLock) {
+      this.logger.debug('Another instance is running video reclassification');
+      return;
+    }
+
+    try {
+      const startTime = Date.now();
+      this.logger.log('Starting video reclassification');
+
+      const result = await this.youtubeService.reclassifyVideos(30);
+
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      this.logger.log(`Video reclassification completed in ${duration}s: ${result.updated} updated, ${result.unchanged} unchanged`);
+    } catch (error) {
+      this.logger.error(`Video reclassification error: ${error}`);
+    } finally {
+      await this.redis.releaseLock('cron:video-reclassification');
+    }
+  }
+
   /**
    * Process items in parallel with concurrency limit
    */

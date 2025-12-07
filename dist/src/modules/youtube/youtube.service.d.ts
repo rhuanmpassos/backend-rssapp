@@ -150,7 +150,10 @@ export declare class YouTubeService {
             publishedAt: Date;
             fetchedAt: Date;
             videoId: string;
+            isLiveContent: boolean;
             channelDbId: string;
+            durationSecs: number | null;
+            classifiedAt: Date | null;
         }[];
         meta: {
             page: number;
@@ -189,11 +192,20 @@ export declare class YouTubeService {
         publishedAt: Date;
         fetchedAt: Date;
         videoId: string;
+        isLive: boolean;
+        isLiveContent: boolean;
         duration: string | null;
         channelDbId: string;
+        videoType: string | null;
+        durationSecs: number | null;
+        classifiedAt: Date | null;
     }[]>;
     fetchAndSaveVideosFromRss(channelDbId: string): Promise<{
         created: number;
         skipped: number;
+    }>;
+    reclassifyVideos(limit?: number): Promise<{
+        updated: number;
+        unchanged: number;
     }>;
 }
