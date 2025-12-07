@@ -207,6 +207,7 @@ export declare class CustomFeedService {
         message: string;
     }>;
     getRssXml(slug: string): Promise<string>;
+    private resolveImageUrl;
     private discoverRssFeed;
     private extractWithHeuristics;
     private extractArticlesDynamically;

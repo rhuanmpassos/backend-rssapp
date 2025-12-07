@@ -1,10 +1,17 @@
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { YouTubeApiService, YouTubeChannelInfo, YouTubeVideoInfo } from './youtube-api.service';
+import { RssParserService } from '../../scraper/rss-parser.service';
+import { PlaywrightService } from '../../scraper/playwright.service';
+import { YoutubeiService } from './youtubei.service';
+export type VideoType = 'video' | 'short' | 'vod' | 'live';
 export declare class YouTubeService {
     private prisma;
     private youtubeApi;
+    private rssParserService;
+    private playwrightService;
+    private youtubeiService;
     private readonly logger;
-    constructor(prisma: PrismaService, youtubeApi: YouTubeApiService);
+    constructor(prisma: PrismaService, youtubeApi: YouTubeApiService, rssParserService: RssParserService, playwrightService: PlaywrightService, youtubeiService: YoutubeiService);
     resolveChannel(input: string): Promise<any>;
     getOrCreateChannel(info: YouTubeChannelInfo): Promise<{
         id: string;
@@ -111,10 +118,12 @@ export declare class YouTubeService {
             title: string;
             description: string | null;
             thumbnailUrl: string;
-            duration: null;
+            duration: number | null;
             publishedAt: Date | null;
             fetchedAt: Date;
             url: string;
+            isLive: boolean;
+            videoType: VideoType;
         }[];
         meta: {
             page: number;
@@ -131,6 +140,9 @@ export declare class YouTubeService {
             isCustomFeed?: undefined;
         };
         data: {
+            isLive: boolean;
+            videoType: VideoType;
+            duration: number | null;
             id: string;
             title: string;
             description: string | null;
@@ -139,7 +151,6 @@ export declare class YouTubeService {
             fetchedAt: Date;
             videoId: string;
             channelDbId: string;
-            duration: string | null;
         }[];
         meta: {
             page: number;
@@ -178,7 +189,11 @@ export declare class YouTubeService {
         publishedAt: Date;
         fetchedAt: Date;
         videoId: string;
-        channelDbId: string;
         duration: string | null;
+        channelDbId: string;
     }[]>;
+    fetchAndSaveVideosFromRss(channelDbId: string): Promise<{
+        created: number;
+        skipped: number;
+    }>;
 }

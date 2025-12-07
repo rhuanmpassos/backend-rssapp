@@ -10,14 +10,13 @@ exports.CustomYouTubeFeedModule = void 0;
 const common_1 = require("@nestjs/common");
 const custom_youtube_feed_controller_1 = require("./custom-youtube-feed.controller");
 const custom_youtube_feed_service_1 = require("./custom-youtube-feed.service");
-const youtube_module_1 = require("../youtube/youtube.module");
 const scraper_module_1 = require("../../scraper/scraper.module");
 let CustomYouTubeFeedModule = class CustomYouTubeFeedModule {
 };
 exports.CustomYouTubeFeedModule = CustomYouTubeFeedModule;
 exports.CustomYouTubeFeedModule = CustomYouTubeFeedModule = __decorate([
     (0, common_1.Module)({
-        imports: [youtube_module_1.YouTubeModule, scraper_module_1.ScraperModule],
+        imports: [scraper_module_1.ScraperModule],
         controllers: [custom_youtube_feed_controller_1.CustomYouTubeFeedController],
         providers: [custom_youtube_feed_service_1.CustomYouTubeFeedService],
         exports: [custom_youtube_feed_service_1.CustomYouTubeFeedService],

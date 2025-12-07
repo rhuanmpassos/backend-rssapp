@@ -19,6 +19,8 @@ import { HealthModule } from './modules/health/health.module';
 import { FolderModule } from './modules/folder/folder.module';
 import { CustomFeedModule } from './modules/custom-feed/custom-feed.module';
 import { CustomYouTubeFeedModule } from './modules/custom-youtube-feed/custom-youtube-feed.module';
+import { BookmarkModule } from './modules/bookmark/bookmark.module';
+import { SearchModule } from './modules/search/search.module';
 
 // Workers/Jobs
 import { JobsModule } from './jobs/jobs.module';
@@ -69,9 +71,12 @@ import { JobsModule } from './jobs/jobs.module';
     FolderModule,
     CustomFeedModule,
     CustomYouTubeFeedModule,
+    BookmarkModule,
+    SearchModule,
 
     // Jobs/Workers
     JobsModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }
+

@@ -37,21 +37,33 @@ let RssParserService = RssParserService_1 = class RssParserService {
                 this.logger.warn(`RSS feed has no items: ${rssUrl}`);
                 return null;
             }
+            const baseUrl = feed.link || this.extractBaseUrl(rssUrl);
+            this.logger.debug(`Base URL for resolving relative paths: ${baseUrl}`);
             const items = feed.items
                 .filter((item) => item.link || item.guid)
-                .map((item) => ({
-                url: item.link || item.guid || '',
-                title: item.title || 'Untitled',
-                excerpt: this.extractExcerpt(item),
-                thumbnailUrl: this.extractThumbnail(item),
-                author: item.creator || item.author,
-                publishedAt: item.pubDate ? new Date(item.pubDate) : undefined,
-            }));
+                .map((item) => {
+                const thumbnailUrl = this.extractThumbnail(item);
+                const resolvedThumbnail = thumbnailUrl ? this.resolveUrl(thumbnailUrl, baseUrl) : undefined;
+                if (thumbnailUrl && thumbnailUrl !== resolvedThumbnail) {
+                    this.logger.debug(`Resolved thumbnail: ${thumbnailUrl} -> ${resolvedThumbnail}`);
+                }
+                return {
+                    url: item.link || item.guid || '',
+                    title: item.title || 'Untitled',
+                    excerpt: this.extractExcerpt(item),
+                    thumbnailUrl: resolvedThumbnail,
+                    author: item.creator || item.author,
+                    publishedAt: item.pubDate ? new Date(item.pubDate) : undefined,
+                };
+            });
             if (items.length === 0) {
                 this.logger.warn(`RSS feed parsed but has no valid items: ${rssUrl}`);
                 return null;
             }
             this.logger.log(`RSS feed parsed successfully: ${items.length} items found`);
+            if (items.length > 0) {
+                this.logger.debug(`Sample item: title="${items[0].title}", thumbnail="${items[0].thumbnailUrl}"`);
+            }
             return {
                 title: feed.title || 'Untitled Feed',
                 description: feed.description,
@@ -62,6 +74,15 @@ let RssParserService = RssParserService_1 = class RssParserService {
         catch (error) {
             this.logger.error(`Failed to parse RSS: ${rssUrl} - ${error}`);
             return null;
+        }
+    }
+    extractBaseUrl(rssUrl) {
+        try {
+            const url = new URL(rssUrl);
+            return `${url.protocol}//${url.hostname}`;
+        }
+        catch {
+            return '';
         }
     }
     async parseContent(xmlContent) {

@@ -82,10 +82,12 @@ export declare class YouTubeController {
             title: string;
             description: string | null;
             thumbnailUrl: string;
-            duration: null;
+            duration: number | null;
             publishedAt: Date | null;
             fetchedAt: Date;
             url: string;
+            isLive: boolean;
+            videoType: import("./youtube.service").VideoType;
         }[];
         meta: {
             page: number;
@@ -102,6 +104,9 @@ export declare class YouTubeController {
             isCustomFeed?: undefined;
         };
         data: {
+            isLive: boolean;
+            videoType: import("./youtube.service").VideoType;
+            duration: number | null;
             id: string;
             title: string;
             description: string | null;
@@ -110,7 +115,6 @@ export declare class YouTubeController {
             fetchedAt: Date;
             videoId: string;
             channelDbId: string;
-            duration: string | null;
         }[];
         meta: {
             page: number;

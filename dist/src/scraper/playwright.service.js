@@ -19,6 +19,27 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
         this.configService = configService;
         this.logger = new common_1.Logger(PlaywrightService_1.name);
         this.browser = null;
+        this.ARTICLE_SELECTORS = [
+            '[itemtype*="schema.org/Article"]',
+            '[itemtype*="schema.org/NewsArticle"]',
+            '[itemtype*="schema.org/BlogPosting"]',
+            'article',
+            'main article',
+            '[role="article"]',
+            '[class*="article"]',
+            '[class*="post"]',
+            '[class*="story"]',
+            '[class*="news-item"]',
+            '[class*="entry"]',
+            '[class*="content-item"]',
+            '[class*="feed-item"]',
+            '[class*="card-news"]',
+            '[class*="noticia"]',
+            '[class*="materia"]',
+            '[data-testid*="article"]',
+            '[data-component*="article"]',
+            '[data-type="article"]',
+        ];
         this.timeout = this.configService.get('PLAYWRIGHT_TIMEOUT', 30000);
         this.userAgent = this.configService.get('USER_AGENT', 'Mozilla/5.0 (compatible; RSSApp/1.0; +https://github.com/rssapp)');
     }
@@ -67,6 +88,7 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                 timeout: this.timeout,
             });
             await page.waitForTimeout(2000);
+            const jsonLdData = await this.extractJsonLd(page);
             const metadata = await page.evaluate(() => {
                 const getMeta = (name) => {
                     const el = document.querySelector(`meta[property="${name}"]`) ||
@@ -90,18 +112,28 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                     description = firstP?.textContent?.trim() || null;
                 }
                 const thumbnailUrl = getMeta('og:image') ||
+                    getMeta('og:image:url') ||
                     getMeta('twitter:image') ||
+                    getMeta('twitter:image:src') ||
                     document.querySelector('article img')?.getAttribute('src') ||
+                    document.querySelector('[class*="article"] img')?.getAttribute('src') ||
+                    document.querySelector('main img')?.getAttribute('src') ||
                     null;
                 const author = getMeta('author') ||
                     getMeta('article:author') ||
+                    getMeta('twitter:creator') ||
                     document.querySelector('[rel="author"]')?.textContent?.trim() ||
+                    document.querySelector('[class*="author"]')?.textContent?.trim() ||
+                    document.querySelector('[itemprop="author"]')?.textContent?.trim() ||
                     null;
                 const publishedStr = getMeta('article:published_time') ||
                     getMeta('datePublished') ||
+                    getMeta('date') ||
                     document.querySelector('time')?.getAttribute('datetime') ||
+                    document.querySelector('[itemprop="datePublished"]')?.getAttribute('content') ||
                     null;
                 const canonicalUrl = getLink('canonical') || null;
+                const pageType = getMeta('og:type') || null;
                 return {
                     title,
                     description,
@@ -109,25 +141,43 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                     author,
                     publishedStr,
                     canonicalUrl,
+                    pageType,
                 };
             });
             const html = await page.content();
             await context.close();
+            const finalTitle = jsonLdData?.headline || jsonLdData?.name || metadata.title || 'Untitled';
+            const finalDescription = jsonLdData?.description || metadata.description;
+            const finalThumbnail = this.extractThumbnailFromJsonLd(jsonLdData) || metadata.thumbnailUrl;
+            const finalAuthor = this.extractAuthorFromJsonLd(jsonLdData) || metadata.author;
+            const finalPublished = jsonLdData?.datePublished || metadata.publishedStr;
+            const confidence = this.calculateConfidence({
+                title: finalTitle,
+                description: finalDescription || undefined,
+                thumbnailUrl: finalThumbnail || undefined,
+                author: finalAuthor || undefined,
+                publishedAt: finalPublished || undefined,
+                hasJsonLd: !!jsonLdData,
+            });
+            if (confidence < 2) {
+                this.logger.warn(`Low confidence extraction for ${url}: score ${confidence}/5`);
+            }
             return {
-                title: metadata.title || 'Untitled',
-                description: metadata.description || undefined,
-                excerpt: this.truncateExcerpt(metadata.description),
-                thumbnailUrl: metadata.thumbnailUrl
-                    ? this.resolveUrl(metadata.thumbnailUrl, url)
+                title: finalTitle,
+                description: finalDescription || undefined,
+                excerpt: this.truncateExcerpt(finalDescription),
+                thumbnailUrl: finalThumbnail
+                    ? this.resolveUrl(finalThumbnail, url)
                     : undefined,
-                author: metadata.author || undefined,
-                publishedAt: metadata.publishedStr
-                    ? new Date(metadata.publishedStr)
+                author: finalAuthor || undefined,
+                publishedAt: finalPublished
+                    ? new Date(finalPublished)
                     : undefined,
                 canonicalUrl: metadata.canonicalUrl
                     ? this.resolveUrl(metadata.canonicalUrl, url)
                     : undefined,
                 html,
+                confidence,
             };
         }
         catch (error) {
@@ -139,6 +189,86 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                 await page.close().catch(() => { });
             }
         }
+    }
+    async extractJsonLd(page) {
+        try {
+            const jsonLdItems = await page.evaluate(() => {
+                const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+                const items = [];
+                scripts.forEach((script) => {
+                    try {
+                        const data = JSON.parse(script.textContent || '{}');
+                        if (data['@graph'] && Array.isArray(data['@graph'])) {
+                            items.push(...data['@graph']);
+                        }
+                        else {
+                            items.push(data);
+                        }
+                    }
+                    catch {
+                    }
+                });
+                return items;
+            });
+            const articleTypes = ['NewsArticle', 'Article', 'BlogPosting', 'WebPage', 'ReportageNewsArticle'];
+            for (const item of jsonLdItems) {
+                const itemType = item['@type'];
+                if (articleTypes.includes(itemType) || (Array.isArray(itemType) && itemType.some(t => articleTypes.includes(t)))) {
+                    this.logger.debug(`Found JSON-LD article data: ${itemType}`);
+                    return item;
+                }
+            }
+            return null;
+        }
+        catch (error) {
+            this.logger.debug(`Failed to extract JSON-LD: ${error}`);
+            return null;
+        }
+    }
+    extractThumbnailFromJsonLd(jsonLd) {
+        if (!jsonLd)
+            return null;
+        const image = jsonLd.image || jsonLd.thumbnailUrl;
+        if (!image)
+            return null;
+        if (typeof image === 'string')
+            return image;
+        if (Array.isArray(image))
+            return image[0]?.url || image[0] || null;
+        if (typeof image === 'object')
+            return image.url || image.contentUrl || null;
+        return null;
+    }
+    extractAuthorFromJsonLd(jsonLd) {
+        if (!jsonLd)
+            return null;
+        const author = jsonLd.author;
+        if (!author)
+            return null;
+        if (typeof author === 'string')
+            return author;
+        if (Array.isArray(author))
+            return author[0]?.name || null;
+        if (typeof author === 'object')
+            return author.name || null;
+        return null;
+    }
+    calculateConfidence(data) {
+        let score = 0;
+        if (data.title && data.title !== 'Untitled')
+            score++;
+        if (data.description && data.description.length > 20)
+            score++;
+        if (data.thumbnailUrl)
+            score++;
+        if (data.author)
+            score++;
+        if (data.publishedAt)
+            score++;
+        if (data.hasJsonLd && score > 0) {
+            this.logger.debug('JSON-LD data found, high confidence');
+        }
+        return score;
     }
     async scrapeArticleLinks(url) {
         let page = null;
@@ -153,7 +283,8 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                 timeout: this.timeout,
             });
             await page.waitForTimeout(2000);
-            const links = await page.evaluate(() => {
+            const articleSelectors = this.ARTICLE_SELECTORS;
+            const links = await page.evaluate((selectors) => {
                 const articleLinks = [];
                 const seen = new Set();
                 const siteSpecificSelectors = {
@@ -172,24 +303,33 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                         '[data-priority] a',
                         '[class*="feed-post"] a',
                         '[class*="bstn"] a',
-                        'article a',
-                        '[role="article"] a',
+                    ],
+                    'oglobo.globo.com': [
+                        'a[href*="/brasil/"]',
+                        'a[href*="/politica/"]',
+                        'a[href*="/economia/"]',
+                        '[class*="teaser"] a',
+                    ],
+                    'folha.uol.com.br': [
+                        'a[href*="/cotidiano/"]',
+                        'a[href*="/poder/"]',
+                        'a[href*="/mercado/"]',
+                        '[class*="c-headline"] a',
+                    ],
+                    'estadao.com.br': [
+                        'a[href*="/brasil/"]',
+                        'a[href*="/politica/"]',
+                        'a[href*="/economia/"]',
+                        '[class*="card"] a',
                     ],
                 };
                 const hostname = window.location.hostname.toLowerCase();
                 const specificSelectors = siteSpecificSelectors[hostname] || [];
                 const allSelectors = [
                     ...specificSelectors,
-                    'article a',
-                    '.post a',
-                    '.entry a',
-                    '[class*="article"] a',
-                    '[class*="post"] a',
-                    '[class*="news"] a',
-                    '[class*="noticia"] a',
+                    ...selectors.map(s => `${s} a`),
                     'main a',
                     '.content a',
-                    '[role="article"] a',
                 ];
                 for (const selector of allSelectors) {
                     try {
@@ -198,8 +338,8 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                             const href = el.getAttribute('href');
                             if (href && !seen.has(href)) {
                                 const hrefLower = href.toLowerCase();
-                                const hostname = window.location.hostname.toLowerCase();
-                                if (hostname === 'g1.globo.com') {
+                                const currentHostname = window.location.hostname.toLowerCase();
+                                if (currentHostname === 'g1.globo.com') {
                                     if (hrefLower.includes('/noticia/') ||
                                         hrefLower.includes('/mundo/') ||
                                         hrefLower.includes('/brasil/') ||
@@ -217,9 +357,15 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                                     if (hrefLower.includes('/noticia/') ||
                                         hrefLower.includes('/news/') ||
                                         hrefLower.includes('/article/') ||
+                                        hrefLower.includes('/articles/') ||
                                         hrefLower.includes('/post/') ||
+                                        hrefLower.includes('/posts/') ||
+                                        hrefLower.includes('/blog/') ||
+                                        hrefLower.includes('/story/') ||
+                                        hrefLower.includes('/materia/') ||
                                         hrefLower.match(/\d{4}\/\d{2}\/\d{2}/) ||
-                                        (hrefLower.length > 20 && !hrefLower.includes('#'))) {
+                                        hrefLower.match(/\d{4}\/\d{2}\//) ||
+                                        (hrefLower.length > 30 && !hrefLower.includes('#') && !hrefLower.includes('?'))) {
                                         seen.add(href);
                                         articleLinks.push(href);
                                     }
@@ -231,9 +377,9 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                     }
                 }
                 return articleLinks;
-            });
+            }, this.ARTICLE_SELECTORS);
             await context.close();
-            return links
+            const resolvedLinks = links
                 .map((link) => {
                 try {
                     return new URL(link, url).href;
@@ -250,11 +396,20 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                     const path = parsed.pathname;
                     if (path === '/' ||
                         path.startsWith('/tag') ||
+                        path.startsWith('/tags') ||
                         path.startsWith('/category') ||
+                        path.startsWith('/categories') ||
                         path.startsWith('/author') ||
                         path.startsWith('/page') ||
+                        path.startsWith('/search') ||
+                        path.startsWith('/login') ||
+                        path.startsWith('/register') ||
+                        path.startsWith('/signin') ||
+                        path.startsWith('/signup') ||
                         path.includes('login') ||
-                        path.includes('register')) {
+                        path.includes('register') ||
+                        path.includes('subscribe') ||
+                        path.includes('newsletter')) {
                         return false;
                     }
                     return true;
@@ -262,8 +417,10 @@ let PlaywrightService = PlaywrightService_1 = class PlaywrightService {
                 catch {
                     return false;
                 }
-            })
-                .slice(0, 20);
+            });
+            const uniqueLinks = [...new Set(resolvedLinks)].slice(0, 30);
+            this.logger.log(`Found ${uniqueLinks.length} unique article links from ${url}`);
+            return uniqueLinks;
         }
         catch (error) {
             this.logger.error(`Failed to scrape article links from ${url}: ${error}`);

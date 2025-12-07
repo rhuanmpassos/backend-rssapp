@@ -30,6 +30,8 @@ model User {
   subscriptions Subscription[]
   pushTokens    PushToken[]
   folders       Folder[]
+  bookmarks     UserBookmark[]
+  readItems     UserReadItem[]
 
   @@map("users")
 }
@@ -54,6 +56,48 @@ model Folder {
   @@index([userId])
   @@index([userId, order])
   @@map("folders")
+}
+
+// =============================================
+// USER BOOKMARKS & READ ITEMS (Sync across devices)
+// =============================================
+
+model UserBookmark {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  itemType     String    @map("item_type") // 'feed' | 'video'
+  itemId       String    @map("item_id")   // feedItemId or videoId
+  title        String
+  excerpt      String?
+  thumbnailUrl String?   @map("thumbnail_url")
+  url          String
+  source       String    // Feed title or channel name
+  publishedAt  DateTime? @map("published_at")
+  savedAt      DateTime  @default(now()) @map("saved_at")
+  
+  // Relations
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemType, itemId])
+  @@index([userId])
+  @@index([savedAt])
+  @@map("user_bookmarks")
+}
+
+model UserReadItem {
+  id       String   @id @default(uuid())
+  userId   String   @map("user_id")
+  itemType String   @map("item_type") // 'feed' | 'video'
+  itemId   String   @map("item_id")
+  readAt   DateTime @default(now()) @map("read_at")
+  
+  // Relations
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemType, itemId])
+  @@index([userId])
+  @@index([readAt])
+  @@map("user_read_items")
 }
 
 // =============================================
@@ -157,6 +201,7 @@ model CustomYouTubeFeed {
   description     String?          // Descrição do feed
   slug            String           @unique // URL-friendly identifier
   channelId       String?          @map("channel_id") // YouTube Channel ID ou handle
+  channelName     String?          @map("channel_name") // Nome do canal do YouTube
   channelUrl      String?          @map("channel_url") // URL completa do canal
   categoryId      String?          @map("category_id")
   createdAt       DateTime         @default(now()) @map("created_at")

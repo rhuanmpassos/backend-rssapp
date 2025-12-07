@@ -20,8 +20,18 @@ export declare class CustomYouTubeFeedController {
         description: string | null;
         channelId: string | null;
         slug: string;
+        channelName: string | null;
         channelUrl: string | null;
         categoryId: string | null;
+    }>;
+    backfillChannelNames(): Promise<{
+        updated: number;
+        failed: number;
+        feeds: {
+            slug: string;
+            channelName: string | null;
+            error?: string;
+        }[];
     }>;
     findAll(): Promise<({
         category: {
@@ -38,6 +48,7 @@ export declare class CustomYouTubeFeedController {
         description: string | null;
         channelId: string | null;
         slug: string;
+        channelName: string | null;
         channelUrl: string | null;
         categoryId: string | null;
     })[]>;
@@ -56,6 +67,7 @@ export declare class CustomYouTubeFeedController {
         description: string | null;
         channelId: string | null;
         slug: string;
+        channelName: string | null;
         channelUrl: string | null;
         categoryId: string | null;
     })[]>;
@@ -74,6 +86,7 @@ export declare class CustomYouTubeFeedController {
         description: string | null;
         channelId: string | null;
         slug: string;
+        channelName: string | null;
         channelUrl: string | null;
         categoryId: string | null;
     })[]>;
@@ -92,6 +105,7 @@ export declare class CustomYouTubeFeedController {
         description: string | null;
         channelId: string | null;
         slug: string;
+        channelName: string | null;
         channelUrl: string | null;
         categoryId: string | null;
     }>;
@@ -111,6 +125,7 @@ export declare class CustomYouTubeFeedController {
         description: string | null;
         channelId: string | null;
         slug: string;
+        channelName: string | null;
         channelUrl: string | null;
         categoryId: string | null;
     }>;

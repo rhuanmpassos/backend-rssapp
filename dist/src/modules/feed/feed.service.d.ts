@@ -67,11 +67,11 @@ export declare class FeedService {
             siteDomain: string;
         };
         data: {
+            thumbnailUrl: string | null;
             id: string;
             url: string;
             title: string;
             feedId: string;
-            thumbnailUrl: string | null;
             author: string | null;
             canonicalUrl: string | null;
             excerpt: string | null;
@@ -86,6 +86,8 @@ export declare class FeedService {
             totalPages: number;
         };
     }>;
+    private extractBaseUrl;
+    private resolveRelativeUrl;
     updateFeed(feedId: string, data: {
         title?: string;
         rssUrl?: string;

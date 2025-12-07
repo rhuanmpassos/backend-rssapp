@@ -19,7 +19,7 @@ export class CustomFeedService {
     private prisma: PrismaService,
     private playwrightService: PlaywrightService,
     private rssParserService: RssParserService,
-  ) {}
+  ) { }
 
   async create(dto: CreateCustomFeedDto) {
     // Check if slug already exists
@@ -270,6 +270,18 @@ export class CustomFeedService {
     const baseUrl = process.env.APP_URL || 'http://localhost:3000';
     const feedUrl = `${baseUrl}/api/v1/custom-feeds/${slug}/rss.xml`;
 
+    // Extract site base URL for resolving relative image paths
+    let siteBaseUrl = '';
+    if (feed.siteUrl) {
+      try {
+        const url = new URL(feed.siteUrl);
+        siteBaseUrl = `${url.protocol}//${url.hostname}`;
+      } catch {
+        siteBaseUrl = '';
+      }
+    }
+    this.logger.debug(`Site base URL for resolving images: ${siteBaseUrl}`);
+
     let items: any[] = [];
 
     // Se o feed tem configuração de scraper, extrair dinamicamente
@@ -286,10 +298,15 @@ export class CustomFeedService {
                 title: item.title,
                 subtitle: item.excerpt,
                 link: item.url,
-                imageUrl: item.thumbnailUrl,
+                imageUrl: item.thumbnailUrl, // Already resolved by rssParserService
                 publishedAt: item.publishedAt,
               }));
               this.logger.log(`Using discovered RSS feed with ${items.length} items`);
+
+              // Log sample item for debugging
+              if (items.length > 0) {
+                this.logger.debug(`Sample RSS item: title="${items[0].title}", imageUrl="${items[0].imageUrl}"`);
+              }
             }
           }
         } catch (error) {
@@ -302,6 +319,18 @@ export class CustomFeedService {
         try {
           this.logger.log(`Trying automatic extraction with heuristics for feed: ${feed.slug}`);
           items = await this.extractWithHeuristics(feed.siteUrl);
+
+          // Resolve relative URLs from heuristics extraction
+          items = items.map(item => ({
+            ...item,
+            imageUrl: this.resolveImageUrl(item.imageUrl || item.image, siteBaseUrl),
+            image: this.resolveImageUrl(item.image || item.imageUrl, siteBaseUrl),
+          }));
+
+          this.logger.log(`Extracted ${items.length} items with heuristics`);
+          if (items.length > 0) {
+            this.logger.debug(`Sample heuristic item: title="${items[0].title}", imageUrl="${items[0].imageUrl}"`);
+          }
         } catch (error) {
           this.logger.error(`Failed to extract articles for feed ${feed.slug}: ${error}`);
           items = feed.items || [];
@@ -311,6 +340,8 @@ export class CustomFeedService {
       // Se não tem siteUrl, usar itens do banco
       items = feed.items || [];
     }
+
+    this.logger.log(`Generating RSS XML with ${items.length} items for feed: ${slug}`);
 
     let rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
@@ -333,7 +364,10 @@ export class CustomFeedService {
 `;
 
       if (item.imageUrl || item.image) {
-        const imageUrl = item.imageUrl || item.image;
+        // Resolve relative URL if needed
+        let imageUrl = item.imageUrl || item.image;
+        imageUrl = this.resolveImageUrl(imageUrl, siteBaseUrl);
+
         rss += `      <media:content url="${imageUrl}" type="image/jpeg" />
       <enclosure url="${imageUrl}" type="image/jpeg" />
 `;
@@ -352,6 +386,32 @@ export class CustomFeedService {
 </rss>`;
 
     return rss;
+  }
+
+  /**
+   * Resolve relative image URLs to absolute URLs
+   */
+  private resolveImageUrl(imageUrl: string | undefined | null, baseUrl: string): string | undefined {
+    if (!imageUrl) return undefined;
+
+    // Already absolute URL
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      return imageUrl;
+    }
+
+    // Relative URL - resolve against base
+    if (baseUrl && imageUrl.startsWith('/')) {
+      const resolved = `${baseUrl}${imageUrl}`;
+      this.logger.debug(`Resolved relative image: ${imageUrl} -> ${resolved}`);
+      return resolved;
+    }
+
+    // Protocol-relative URL
+    if (imageUrl.startsWith('//')) {
+      return `https:${imageUrl}`;
+    }
+
+    return imageUrl;
   }
 
   private async discoverRssFeed(siteUrl: string): Promise<string | null> {
@@ -410,7 +470,7 @@ export class CustomFeedService {
 
       const articles = await page.evaluate(() => {
         const results: any[] = [];
-        
+
         // Heurísticas comuns para encontrar artigos
         const articleSelectors = [
           'article',
@@ -427,7 +487,7 @@ export class CustomFeedService {
         ];
 
         let articleElements: NodeListOf<Element> | null = null;
-        
+
         // Tentar cada seletor até encontrar elementos
         for (const selector of articleSelectors) {
           const elements = document.querySelectorAll(selector);
@@ -457,8 +517,8 @@ export class CustomFeedService {
                   if (linkEl) {
                     const href = linkEl.getAttribute('href');
                     if (href) {
-                      article.link = href.startsWith('http') 
-                        ? href 
+                      article.link = href.startsWith('http')
+                        ? href
                         : new URL(href, window.location.href).href;
                       article.url = article.link;
                     }
@@ -474,8 +534,8 @@ export class CustomFeedService {
               if (linkEl) {
                 const href = linkEl.getAttribute('href');
                 if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-                  article.link = href.startsWith('http') 
-                    ? href 
+                  article.link = href.startsWith('http')
+                    ? href
                     : new URL(href, window.location.href).href;
                   article.url = article.link;
                 }
@@ -498,12 +558,12 @@ export class CustomFeedService {
             // Imagem - procurar img dentro do artigo
             const imgEl = articleEl.querySelector('img');
             if (imgEl) {
-              const src = imgEl.getAttribute('src') || 
-                         imgEl.getAttribute('data-src') ||
-                         (imgEl as HTMLImageElement).src;
+              const src = imgEl.getAttribute('src') ||
+                imgEl.getAttribute('data-src') ||
+                (imgEl as HTMLImageElement).src;
               if (src) {
-                article.imageUrl = src.startsWith('http') 
-                  ? src 
+                article.imageUrl = src.startsWith('http')
+                  ? src
                   : new URL(src, window.location.href).href;
                 article.image = article.imageUrl;
               }
@@ -514,10 +574,10 @@ export class CustomFeedService {
             for (const sel of dateSelectors) {
               const el = articleEl.querySelector(sel);
               if (el) {
-                const dateStr = el.getAttribute('datetime') || 
-                              el.getAttribute('data-date') ||
-                              el.getAttribute('content') ||
-                              el.textContent?.trim();
+                const dateStr = el.getAttribute('datetime') ||
+                  el.getAttribute('data-date') ||
+                  el.getAttribute('content') ||
+                  el.textContent?.trim();
                 if (dateStr) {
                   article.publishedAt = dateStr;
                   break;
@@ -583,8 +643,8 @@ export class CustomFeedService {
               if (linkEl) {
                 const href = linkEl.getAttribute('href');
                 if (href) {
-                  article.link = href.startsWith('http') 
-                    ? href 
+                  article.link = href.startsWith('http')
+                    ? href
                     : new URL(href, window.location.href).href;
                   article.url = article.link;
                 }
@@ -603,12 +663,12 @@ export class CustomFeedService {
             if (selectors.image) {
               const imageEl = articleEl.querySelector(selectors.image);
               if (imageEl) {
-                const src = imageEl.getAttribute('src') || 
-                           imageEl.getAttribute('data-src') ||
-                           (imageEl as HTMLImageElement).src;
+                const src = imageEl.getAttribute('src') ||
+                  imageEl.getAttribute('data-src') ||
+                  (imageEl as HTMLImageElement).src;
                 if (src) {
-                  article.imageUrl = src.startsWith('http') 
-                    ? src 
+                  article.imageUrl = src.startsWith('http')
+                    ? src
                     : new URL(src, window.location.href).href;
                   article.image = article.imageUrl;
                 }
@@ -619,9 +679,9 @@ export class CustomFeedService {
             if (selectors.publishedAt) {
               const dateEl = articleEl.querySelector(selectors.publishedAt);
               if (dateEl) {
-                const dateStr = dateEl.getAttribute('datetime') || 
-                              dateEl.getAttribute('content') ||
-                              dateEl.textContent?.trim();
+                const dateStr = dateEl.getAttribute('datetime') ||
+                  dateEl.getAttribute('content') ||
+                  dateEl.textContent?.trim();
                 if (dateStr) {
                   article.publishedAt = dateStr;
                 }

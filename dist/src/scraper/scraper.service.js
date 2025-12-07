@@ -214,6 +214,7 @@ let ScraperService = ScraperService_1 = class ScraperService {
             await this.feedService.updateFeed(feedId, {
                 title: parsed.title,
             });
+            this.logger.log(`Processing ${parsed.items.length} items for feed ${feedId}`);
             let newItemsCount = 0;
             for (const item of parsed.items) {
                 const existing = await this.prisma.feedItem.findFirst({
@@ -225,6 +226,7 @@ let ScraperService = ScraperService_1 = class ScraperService {
                 if (existing) {
                     continue;
                 }
+                this.logger.debug(`Saving new item: title="${item.title}", thumbnail="${item.thumbnailUrl}"`);
                 await this.feedItemService.createOrUpdate({
                     feedId: feed.id,
                     url: item.url,

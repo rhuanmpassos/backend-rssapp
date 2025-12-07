@@ -51,11 +51,11 @@ export declare class FeedController {
             siteDomain: string;
         };
         data: {
+            thumbnailUrl: string | null;
             id: string;
             url: string;
             title: string;
             feedId: string;
-            thumbnailUrl: string | null;
             author: string | null;
             canonicalUrl: string | null;
             excerpt: string | null;

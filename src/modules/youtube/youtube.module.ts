@@ -4,6 +4,8 @@ import { ConfigModule } from '@nestjs/config';
 import { YouTubeController } from './youtube.controller';
 import { YouTubeService } from './youtube.service';
 import { YouTubeApiService } from './youtube-api.service';
+import { YoutubeiService } from './youtubei.service';
+import { ScraperModule } from '../../scraper/scraper.module';
 
 @Module({
   imports: [
@@ -12,12 +14,13 @@ import { YouTubeApiService } from './youtube-api.service';
       maxRedirects: 5,
     }),
     ConfigModule,
+    ScraperModule,
   ],
   controllers: [YouTubeController],
-  providers: [YouTubeService, YouTubeApiService],
-  exports: [YouTubeService, YouTubeApiService],
+  providers: [YouTubeService, YouTubeApiService, YoutubeiService],
+  exports: [YouTubeService, YouTubeApiService, YoutubeiService],
 })
-export class YouTubeModule {}
+export class YouTubeModule { }
 
 
 

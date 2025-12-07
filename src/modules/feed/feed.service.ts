@@ -18,7 +18,7 @@ export class FeedService {
     private prisma: PrismaService,
     @Inject(forwardRef(() => ScraperService))
     private scraperService: ScraperService,
-  ) {}
+  ) { }
 
   async getOrCreateFeed(url: string) {
     // Normalize URL
@@ -112,13 +112,23 @@ export class FeedService {
       this.prisma.feedItem.count({ where: { feedId: feed.id } }),
     ]);
 
+    // Resolve relative thumbnail URLs to absolute URLs
+    // This fixes items that were saved before the URL resolution fix
+    const baseUrl = feed.url ? this.extractBaseUrl(feed.url) : '';
+    const resolvedItems = items.map(item => ({
+      ...item,
+      thumbnailUrl: this.resolveRelativeUrl(item.thumbnailUrl, baseUrl),
+    }));
+
+    this.logger.debug(`Returning ${resolvedItems.length} items for feed ${feedId}, baseUrl: ${baseUrl}`);
+
     return {
       feed: {
         id: feed.id,
         title: feed.title,
         siteDomain: feed.siteDomain,
       },
-      data: items,
+      data: resolvedItems,
       meta: {
         page,
         limit,
@@ -126,6 +136,42 @@ export class FeedService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /**
+   * Extract base URL (protocol + hostname) from a full URL
+   */
+  private extractBaseUrl(url: string): string {
+    try {
+      const parsed = new URL(url);
+      return `${parsed.protocol}//${parsed.hostname}`;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Resolve relative URLs to absolute URLs
+   */
+  private resolveRelativeUrl(url: string | null, baseUrl: string): string | null {
+    if (!url) return null;
+
+    // Already absolute
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+
+    // Relative URL starting with /
+    if (baseUrl && url.startsWith('/')) {
+      return `${baseUrl}${url}`;
+    }
+
+    // Protocol-relative URL
+    if (url.startsWith('//')) {
+      return `https:${url}`;
+    }
+
+    return url;
   }
 
   async updateFeed(

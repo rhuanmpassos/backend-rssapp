@@ -17,6 +17,7 @@ export declare class RssParserService {
     private readonly parser;
     constructor();
     parseUrl(rssUrl: string): Promise<ParsedFeed | null>;
+    private extractBaseUrl;
     parseContent(xmlContent: string): Promise<ParsedFeed | null>;
     private extractExcerpt;
     private extractThumbnail;

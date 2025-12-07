@@ -222,8 +222,17 @@ let SubscriptionService = SubscriptionService_1 = class SubscriptionService {
             },
         });
         this.logger.log(`User ${userId} subscribed to site: ${validUrl.href}`);
-        if (feed.status === 'pending') {
-            this.logger.log(`Feed ${feed.id} is pending, discovery should be queued automatically`);
+        this.logger.log(`Feed details: id=${feed.id}, status=${feed.status}, rssUrl=${feed.rssUrl}`);
+        const feedItemCount = await this.prisma.feedItem.count({ where: { feedId: feed.id } });
+        this.logger.log(`Feed ${feed.id} currently has ${feedItemCount} items in database`);
+        if (feedItemCount === 0 || feed.status === 'pending') {
+            this.logger.log(`Feed ${feed.id} needs scraping (items: ${feedItemCount}, status: ${feed.status}), queuing now...`);
+            this.feedService.queueFeedDiscovery(feed.id).catch((err) => {
+                this.logger.error(`Failed to queue feed discovery for ${feed.id}: ${err.message}`);
+            });
+        }
+        else {
+            this.logger.log(`Feed ${feed.id} already has ${feedItemCount} items, skipping scrape`);
         }
         return subscription;
     }

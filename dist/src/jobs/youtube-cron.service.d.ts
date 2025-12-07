@@ -13,9 +13,12 @@ export declare class YouTubeCronService {
     private pushService;
     private readonly logger;
     private readonly intervalMinutes;
+    private readonly batchSize;
+    private readonly concurrency;
     private isRunning;
     constructor(prisma: PrismaService, redis: RedisService, configService: ConfigService, youtubeService: YouTubeService, youtubeApi: YouTubeApiService, pushService: PushService);
     handleYouTubePolling(): Promise<void>;
     handleQuotaReset(): Promise<void>;
+    private processInBatches;
     private delay;
 }

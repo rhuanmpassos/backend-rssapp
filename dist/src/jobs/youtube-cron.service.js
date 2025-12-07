@@ -30,49 +30,50 @@ let YouTubeCronService = YouTubeCronService_1 = class YouTubeCronService {
         this.logger = new common_1.Logger(YouTubeCronService_1.name);
         this.isRunning = false;
         this.intervalMinutes = this.configService.get('CRON_YOUTUBE_INTERVAL_MINUTES', 5);
+        this.batchSize = this.configService.get('CRON_YOUTUBE_BATCH_SIZE', 30);
+        this.concurrency = this.configService.get('CRON_YOUTUBE_CONCURRENCY', 6);
     }
     async handleYouTubePolling() {
         if (this.isRunning) {
             this.logger.debug('YouTube polling job already running, skipping');
             return;
         }
-        const quota = await this.youtubeApi.getQuotaUsage();
-        if (quota.used > quota.limit * 0.9) {
-            this.logger.warn('YouTube API quota near limit, skipping polling');
-            return;
-        }
-        const hasLock = await this.redis.acquireLock('cron:youtube-polling', 300);
+        const hasLock = await this.redis.acquireLock('cron:youtube-polling', 600);
         if (!hasLock) {
             this.logger.debug('Another instance is running YouTube polling');
             return;
         }
         this.isRunning = true;
+        const startTime = Date.now();
         try {
-            this.logger.log('Starting scheduled YouTube polling');
-            const channels = await this.youtubeService.getChannelsToCheck(5);
+            this.logger.log(`Starting scheduled YouTube polling (batch: ${this.batchSize}, concurrency: ${this.concurrency})`);
+            const channels = await this.youtubeService.getChannelsToCheck(this.batchSize);
             this.logger.log(`Found ${channels.length} channels to check`);
-            for (const channel of channels) {
+            const channelsToProcess = channels.filter((channel) => {
+                if (channel.websubExpiresAt && channel.websubExpiresAt > new Date()) {
+                    this.logger.debug(`Skipping ${channel.title} - WebSub active until ${channel.websubExpiresAt}`);
+                    return false;
+                }
+                return true;
+            });
+            this.logger.log(`Processing ${channelsToProcess.length} channels (${channels.length - channelsToProcess.length} skipped due to WebSub)`);
+            await this.processInBatches(channelsToProcess, this.concurrency, async (channel) => {
                 try {
-                    if (channel.websubExpiresAt &&
-                        channel.websubExpiresAt > new Date()) {
-                        this.logger.debug(`Skipping ${channel.title} - WebSub active until ${channel.websubExpiresAt}`);
-                        continue;
-                    }
-                    const result = await this.youtubeService.fetchAndSaveNewVideos(channel.id);
+                    const result = await this.youtubeService.fetchAndSaveVideosFromRss(channel.id);
                     if (result.created > 0) {
                         this.logger.log(`Found ${result.created} new videos for ${channel.title}`);
                         const newVideos = await this.youtubeService.getNewVideosSince(channel.id, new Date(Date.now() - 10 * 60 * 1000));
-                        for (const video of newVideos.slice(0, 3)) {
-                            await this.pushService.notifyNewVideo(channel.id, channel.title, video.title, video.videoId);
-                        }
+                        await Promise.all(newVideos.slice(0, 3).map((video) => this.pushService.notifyNewVideo(channel.id, channel.title, video.title, video.videoId).catch((err) => {
+                            this.logger.error(`Failed to send notification: ${err}`);
+                        })));
                     }
-                    await this.delay(2000);
                 }
                 catch (error) {
                     this.logger.error(`Error checking channel ${channel.title}: ${error}`);
                 }
-            }
-            this.logger.log('Finished scheduled YouTube polling');
+            });
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+            this.logger.log(`Finished scheduled YouTube polling in ${duration}s (${channelsToProcess.length} channels)`);
         }
         catch (error) {
             this.logger.error(`YouTube cron job error: ${error}`);
@@ -95,13 +96,25 @@ let YouTubeCronService = YouTubeCronService_1 = class YouTubeCronService {
             this.logger.error(`Quota check error: ${error}`);
         }
     }
+    async processInBatches(items, concurrency, processor) {
+        const chunks = [];
+        for (let i = 0; i < items.length; i += concurrency) {
+            chunks.push(items.slice(i, i + concurrency));
+        }
+        for (const chunk of chunks) {
+            await Promise.all(chunk.map(processor));
+            if (chunks.indexOf(chunk) < chunks.length - 1) {
+                await this.delay(1000);
+            }
+        }
+    }
     delay(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
     }
 };
 exports.YouTubeCronService = YouTubeCronService;
 __decorate([
-    (0, schedule_1.Cron)(schedule_1.CronExpression.EVERY_5_MINUTES),
+    (0, schedule_1.Cron)('*/3 * * * *'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)

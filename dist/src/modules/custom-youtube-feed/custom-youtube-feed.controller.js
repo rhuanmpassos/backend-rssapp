@@ -25,6 +25,9 @@ let CustomYouTubeFeedController = class CustomYouTubeFeedController {
     create(dto) {
         return this.customYouTubeFeedService.create(dto);
     }
+    backfillChannelNames() {
+        return this.customYouTubeFeedService.backfillChannelNames();
+    }
     findAll() {
         return this.customYouTubeFeedService.findAll();
     }
@@ -63,6 +66,13 @@ __decorate([
     __metadata("design:paramtypes", [create_custom_youtube_feed_dto_1.CreateCustomYouTubeFeedDto]),
     __metadata("design:returntype", void 0)
 ], CustomYouTubeFeedController.prototype, "create", null);
+__decorate([
+    (0, common_1.Post)('backfill-channel-names'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], CustomYouTubeFeedController.prototype, "backfillChannelNames", null);
 __decorate([
     (0, common_1.Get)(),
     __metadata("design:type", Function),

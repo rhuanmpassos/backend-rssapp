@@ -19,12 +19,18 @@ import { Public } from '../auth/decorators/public.decorator';
 
 @Controller('custom-youtube-feeds')
 export class CustomYouTubeFeedController {
-  constructor(private readonly customYouTubeFeedService: CustomYouTubeFeedService) {}
+  constructor(private readonly customYouTubeFeedService: CustomYouTubeFeedService) { }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
   create(@Body() dto: CreateCustomYouTubeFeedDto) {
     return this.customYouTubeFeedService.create(dto);
+  }
+
+  @Post('backfill-channel-names')
+  @HttpCode(HttpStatus.OK)
+  backfillChannelNames() {
+    return this.customYouTubeFeedService.backfillChannelNames();
   }
 
   @Get()

@@ -28,32 +28,35 @@ let FeedCronService = FeedCronService_1 = class FeedCronService {
         this.logger = new common_1.Logger(FeedCronService_1.name);
         this.isRunning = false;
         this.intervalMinutes = this.configService.get('CRON_FEED_INTERVAL_MINUTES', 10);
+        this.batchSize = this.configService.get('CRON_FEED_BATCH_SIZE', 50);
+        this.concurrency = this.configService.get('CRON_FEED_CONCURRENCY', 10);
     }
     async handleFeedScraping() {
         if (this.isRunning) {
             this.logger.debug('Feed scraping job already running, skipping');
             return;
         }
-        const hasLock = await this.redis.acquireLock('cron:feed-scraping', 600);
+        const hasLock = await this.redis.acquireLock('cron:feed-scraping', 900);
         if (!hasLock) {
             this.logger.debug('Another instance is running feed scraping');
             return;
         }
         this.isRunning = true;
+        const startTime = Date.now();
         try {
-            this.logger.log('Starting scheduled feed scraping');
-            const feeds = await this.feedService.getFeedsToScrape(10);
+            this.logger.log(`Starting scheduled feed scraping (batch: ${this.batchSize}, concurrency: ${this.concurrency})`);
+            const feeds = await this.feedService.getFeedsToScrape(this.batchSize);
             this.logger.log(`Found ${feeds.length} feeds to scrape`);
-            for (const feed of feeds) {
+            await this.processInBatches(feeds, this.concurrency, async (feed) => {
                 try {
                     await this.scraperService.scrapeFeed(feed.id);
-                    await this.delay(1000);
                 }
                 catch (error) {
                     this.logger.error(`Error scraping feed ${feed.id}: ${error}`);
                 }
-            }
-            this.logger.log('Finished scheduled feed scraping');
+            });
+            const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+            this.logger.log(`Finished scheduled feed scraping in ${duration}s (${feeds.length} feeds)`);
         }
         catch (error) {
             this.logger.error(`Feed cron job error: ${error}`);
@@ -64,6 +67,11 @@ let FeedCronService = FeedCronService_1 = class FeedCronService {
         }
     }
     async handleFailedFeedsRetry() {
+        const hasLock = await this.redis.acquireLock('cron:feed-retry', 300);
+        if (!hasLock) {
+            this.logger.debug('Another instance is running feed retry');
+            return;
+        }
         try {
             this.logger.log('Retrying failed feeds');
             const failedFeeds = await this.prisma.feed.findMany({
@@ -73,20 +81,35 @@ let FeedCronService = FeedCronService_1 = class FeedCronService {
                         lt: new Date(Date.now() - 60 * 60 * 1000),
                     },
                 },
-                take: 5,
+                take: 20,
             });
-            for (const feed of failedFeeds) {
+            await this.processInBatches(failedFeeds, 5, async (feed) => {
                 this.logger.debug(`Retrying failed feed: ${feed.url}`);
                 await this.prisma.feed.update({
                     where: { id: feed.id },
                     data: { status: 'pending', errorMessage: null },
                 });
                 await this.scraperService.queueFeedDiscovery(feed.id);
-            }
+            });
             this.logger.log(`Queued ${failedFeeds.length} failed feeds for retry`);
         }
         catch (error) {
             this.logger.error(`Failed feeds retry error: ${error}`);
+        }
+        finally {
+            await this.redis.releaseLock('cron:feed-retry');
+        }
+    }
+    async processInBatches(items, concurrency, processor) {
+        const chunks = [];
+        for (let i = 0; i < items.length; i += concurrency) {
+            chunks.push(items.slice(i, i + concurrency));
+        }
+        for (const chunk of chunks) {
+            await Promise.all(chunk.map(processor));
+            if (chunks.indexOf(chunk) < chunks.length - 1) {
+                await this.delay(500);
+            }
         }
     }
     delay(ms) {
@@ -95,7 +118,7 @@ let FeedCronService = FeedCronService_1 = class FeedCronService {
 };
 exports.FeedCronService = FeedCronService;
 __decorate([
-    (0, schedule_1.Cron)(schedule_1.CronExpression.EVERY_10_MINUTES),
+    (0, schedule_1.Cron)(schedule_1.CronExpression.EVERY_5_MINUTES),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)

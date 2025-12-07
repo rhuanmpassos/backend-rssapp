@@ -231,6 +231,17 @@ let CustomFeedService = CustomFeedService_1 = class CustomFeedService {
         const feed = await this.findOne(slug);
         const baseUrl = process.env.APP_URL || 'http://localhost:3000';
         const feedUrl = `${baseUrl}/api/v1/custom-feeds/${slug}/rss.xml`;
+        let siteBaseUrl = '';
+        if (feed.siteUrl) {
+            try {
+                const url = new URL(feed.siteUrl);
+                siteBaseUrl = `${url.protocol}//${url.hostname}`;
+            }
+            catch {
+                siteBaseUrl = '';
+            }
+        }
+        this.logger.debug(`Site base URL for resolving images: ${siteBaseUrl}`);
         let items = [];
         if (feed.siteUrl) {
             if (!feed.articleSelector || !feed.selectors) {
@@ -248,6 +259,9 @@ let CustomFeedService = CustomFeedService_1 = class CustomFeedService {
                                 publishedAt: item.publishedAt,
                             }));
                             this.logger.log(`Using discovered RSS feed with ${items.length} items`);
+                            if (items.length > 0) {
+                                this.logger.debug(`Sample RSS item: title="${items[0].title}", imageUrl="${items[0].imageUrl}"`);
+                            }
                         }
                     }
                 }
@@ -259,6 +273,15 @@ let CustomFeedService = CustomFeedService_1 = class CustomFeedService {
                 try {
                     this.logger.log(`Trying automatic extraction with heuristics for feed: ${feed.slug}`);
                     items = await this.extractWithHeuristics(feed.siteUrl);
+                    items = items.map(item => ({
+                        ...item,
+                        imageUrl: this.resolveImageUrl(item.imageUrl || item.image, siteBaseUrl),
+                        image: this.resolveImageUrl(item.image || item.imageUrl, siteBaseUrl),
+                    }));
+                    this.logger.log(`Extracted ${items.length} items with heuristics`);
+                    if (items.length > 0) {
+                        this.logger.debug(`Sample heuristic item: title="${items[0].title}", imageUrl="${items[0].imageUrl}"`);
+                    }
                 }
                 catch (error) {
                     this.logger.error(`Failed to extract articles for feed ${feed.slug}: ${error}`);
@@ -269,6 +292,7 @@ let CustomFeedService = CustomFeedService_1 = class CustomFeedService {
         else {
             items = feed.items || [];
         }
+        this.logger.log(`Generating RSS XML with ${items.length} items for feed: ${slug}`);
         let rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
@@ -288,7 +312,8 @@ let CustomFeedService = CustomFeedService_1 = class CustomFeedService {
       <pubDate>${item.publishedAt ? new Date(item.publishedAt).toUTCString() : new Date().toUTCString()}</pubDate>
 `;
             if (item.imageUrl || item.image) {
-                const imageUrl = item.imageUrl || item.image;
+                let imageUrl = item.imageUrl || item.image;
+                imageUrl = this.resolveImageUrl(imageUrl, siteBaseUrl);
                 rss += `      <media:content url="${imageUrl}" type="image/jpeg" />
       <enclosure url="${imageUrl}" type="image/jpeg" />
 `;
@@ -303,6 +328,22 @@ let CustomFeedService = CustomFeedService_1 = class CustomFeedService {
         rss += `  </channel>
 </rss>`;
         return rss;
+    }
+    resolveImageUrl(imageUrl, baseUrl) {
+        if (!imageUrl)
+            return undefined;
+        if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+            return imageUrl;
+        }
+        if (baseUrl && imageUrl.startsWith('/')) {
+            const resolved = `${baseUrl}${imageUrl}`;
+            this.logger.debug(`Resolved relative image: ${imageUrl} -> ${resolved}`);
+            return resolved;
+        }
+        if (imageUrl.startsWith('//')) {
+            return `https:${imageUrl}`;
+        }
+        return imageUrl;
     }
     async discoverRssFeed(siteUrl) {
         try {

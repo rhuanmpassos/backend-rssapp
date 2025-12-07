@@ -13,15 +13,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CustomYouTubeFeedService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../../common/prisma/prisma.service");
-const youtube_service_1 = require("../youtube/youtube.service");
-const youtube_api_service_1 = require("../youtube/youtube-api.service");
 const rss_parser_service_1 = require("../../scraper/rss-parser.service");
 const playwright_service_1 = require("../../scraper/playwright.service");
 let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeFeedService {
-    constructor(prisma, youtubeService, youtubeApi, rssParserService, playwrightService) {
+    constructor(prisma, rssParserService, playwrightService) {
         this.prisma = prisma;
-        this.youtubeService = youtubeService;
-        this.youtubeApi = youtubeApi;
         this.rssParserService = rssParserService;
         this.playwrightService = playwrightService;
         this.logger = new common_1.Logger(CustomYouTubeFeedService_1.name);
@@ -34,28 +30,25 @@ let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeF
             throw new common_1.BadRequestException('A feed with this slug already exists');
         }
         let resolvedChannelId = dto.channelId;
+        let resolvedChannelName = null;
         if (dto.channelUrl && !dto.channelId) {
-            this.logger.log(`Resolving channel from URL: ${dto.channelUrl}`);
-            let channel = await this.youtubeService.resolveChannel(dto.channelUrl);
-            if (!channel) {
-                this.logger.log(`API resolution failed, trying scraping for: ${dto.channelUrl}`);
-                const scrapedChannelId = await this.extractChannelIdFromUrl(dto.channelUrl);
-                if (scrapedChannelId) {
-                    resolvedChannelId = scrapedChannelId;
-                    this.logger.log(`Extracted channel ID via scraping: ${resolvedChannelId}`);
-                }
-                else {
-                    this.logger.warn(`Failed to resolve channel from URL: ${dto.channelUrl}`);
-                    throw new common_1.BadRequestException('Could not resolve YouTube channel from the provided URL. Please check if the URL is correct or configure a valid YouTube API key.');
-                }
+            this.logger.log(`Resolving channel from URL via scraping: ${dto.channelUrl}`);
+            const scrapedData = await this.scrapeChannelInfo(dto.channelUrl);
+            if (scrapedData && scrapedData.channelId) {
+                resolvedChannelId = scrapedData.channelId;
+                resolvedChannelName = scrapedData.channelName || null;
+                this.logger.log(`Scraped channel ID: ${resolvedChannelId}, name: ${resolvedChannelName}`);
             }
             else {
-                resolvedChannelId = channel.channelId;
-                this.logger.log(`Resolved channel ID via API: ${resolvedChannelId}`);
+                this.logger.warn(`Failed to resolve channel from URL: ${dto.channelUrl}`);
+                throw new common_1.BadRequestException('Could not resolve YouTube channel from the provided URL. Please check if the URL is correct.');
             }
         }
         if (!resolvedChannelId) {
             throw new common_1.BadRequestException('Channel ID or Channel URL is required');
+        }
+        if (!resolvedChannelName && resolvedChannelId) {
+            resolvedChannelName = await this.scrapeChannelName(resolvedChannelId);
         }
         const feed = await this.prisma.customYouTubeFeed.create({
             data: {
@@ -63,6 +56,7 @@ let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeF
                 description: dto.description,
                 slug: dto.slug,
                 channelId: resolvedChannelId,
+                channelName: resolvedChannelName,
                 channelUrl: dto.channelUrl,
                 categoryId: dto.categoryId,
             },
@@ -140,17 +134,15 @@ let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeF
             }
         }
         let resolvedChannelId = dto.channelId || feed.channelId;
+        let resolvedChannelName = feed.channelName;
         if (dto.channelUrl && !dto.channelId) {
-            let channel = await this.youtubeService.resolveChannel(dto.channelUrl);
-            if (!channel) {
-                const scrapedChannelId = await this.extractChannelIdFromUrl(dto.channelUrl);
-                if (!scrapedChannelId) {
-                    throw new common_1.BadRequestException('Could not resolve YouTube channel from the provided URL');
-                }
-                resolvedChannelId = scrapedChannelId;
+            const scrapedData = await this.scrapeChannelInfo(dto.channelUrl);
+            if (scrapedData && scrapedData.channelId) {
+                resolvedChannelId = scrapedData.channelId;
+                resolvedChannelName = scrapedData.channelName || null;
             }
             else {
-                resolvedChannelId = channel.channelId;
+                throw new common_1.BadRequestException('Could not resolve YouTube channel from the provided URL');
             }
         }
         return this.prisma.customYouTubeFeed.update({
@@ -160,6 +152,7 @@ let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeF
                 description: dto.description,
                 slug: dto.slug,
                 channelId: resolvedChannelId,
+                channelName: resolvedChannelName,
                 channelUrl: dto.channelUrl,
                 categoryId: dto.categoryId,
             },
@@ -181,6 +174,142 @@ let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeF
         this.logger.log(`Custom YouTube feed deleted: ${feed.slug}`);
         return { message: 'Custom YouTube feed deleted successfully' };
     }
+    async backfillChannelNames() {
+        const feedsWithoutName = await this.prisma.customYouTubeFeed.findMany({
+            where: {
+                channelName: null,
+                channelId: { not: null },
+            },
+        });
+        this.logger.log(`Found ${feedsWithoutName.length} feeds without channel name`);
+        const results = {
+            updated: 0,
+            failed: 0,
+            feeds: [],
+        };
+        for (const feed of feedsWithoutName) {
+            try {
+                this.logger.log(`Scraping channel name for ${feed.slug} (${feed.channelId})`);
+                const channelName = await this.scrapeChannelName(feed.channelId);
+                if (channelName) {
+                    await this.prisma.customYouTubeFeed.update({
+                        where: { id: feed.id },
+                        data: { channelName },
+                    });
+                    results.updated++;
+                    results.feeds.push({ slug: feed.slug, channelName });
+                    this.logger.log(`Updated channel name for ${feed.slug}: ${channelName}`);
+                }
+                else {
+                    results.failed++;
+                    results.feeds.push({ slug: feed.slug, channelName: null, error: 'Could not get channel name' });
+                    this.logger.warn(`Could not get channel name for ${feed.slug}`);
+                }
+            }
+            catch (error) {
+                results.failed++;
+                results.feeds.push({ slug: feed.slug, channelName: null, error: String(error) });
+                this.logger.error(`Error updating channel name for ${feed.slug}: ${error}`);
+            }
+        }
+        this.logger.log(`Backfill complete: ${results.updated} updated, ${results.failed} failed`);
+        return results;
+    }
+    async scrapeChannelInfo(url) {
+        try {
+            let normalizedUrl = url.trim();
+            if (normalizedUrl.startsWith('@')) {
+                normalizedUrl = `https://www.youtube.com/${normalizedUrl}`;
+            }
+            else if (!normalizedUrl.startsWith('http')) {
+                normalizedUrl = `https://www.youtube.com/@${normalizedUrl.replace('@', '')}`;
+            }
+            this.logger.log(`Scraping channel info from: ${normalizedUrl}`);
+            const scraped = await this.playwrightService.scrapePage(normalizedUrl);
+            if (!scraped || !scraped.html) {
+                return null;
+            }
+            let channelId = null;
+            const channelIdPatterns = [
+                /"channelId":"([^"]+)"/,
+                /"externalId":"([^"]+)"/,
+                /channel_id=([^&"'\s]+)/,
+                /\/channel\/(UC[a-zA-Z0-9_-]{22})/,
+                /"browseId":"(UC[a-zA-Z0-9_-]{22})"/,
+            ];
+            for (const pattern of channelIdPatterns) {
+                const match = scraped.html.match(pattern);
+                if (match && match[1] && match[1].startsWith('UC')) {
+                    channelId = match[1];
+                    break;
+                }
+            }
+            if (!channelId) {
+                this.logger.warn(`Could not extract channel ID from: ${normalizedUrl}`);
+                return null;
+            }
+            let channelName = null;
+            const namePatterns = [
+                /<meta property="og:title" content="([^"]+)"/,
+                /<meta name="title" content="([^"]+)"/,
+                /"channelName":"([^"]+)"/,
+                /"name":"([^"]+)"/,
+                /<title>([^<]+) - YouTube<\/title>/,
+            ];
+            for (const pattern of namePatterns) {
+                const match = scraped.html.match(pattern);
+                if (match && match[1]) {
+                    const name = match[1].trim();
+                    if (name && name !== 'YouTube' && !name.startsWith('http')) {
+                        channelName = name;
+                        break;
+                    }
+                }
+            }
+            this.logger.log(`Scraped channel info - ID: ${channelId}, Name: ${channelName}`);
+            return { channelId, channelName };
+        }
+        catch (error) {
+            this.logger.error(`Error scraping channel info: ${error}`);
+            return null;
+        }
+    }
+    async scrapeChannelName(channelId) {
+        try {
+            const channelUrl = `https://www.youtube.com/channel/${channelId}`;
+            this.logger.log(`Scraping channel name from: ${channelUrl}`);
+            const scraped = await this.playwrightService.scrapePage(channelUrl);
+            if (!scraped || !scraped.html) {
+                return null;
+            }
+            const patterns = [
+                /<meta property="og:title" content="([^"]+)"/,
+                /<meta name="title" content="([^"]+)"/,
+                /"channelName":"([^"]+)"/,
+                /"name":"([^"]+)"/,
+                /<title>([^<]+) - YouTube<\/title>/,
+            ];
+            for (const pattern of patterns) {
+                const match = scraped.html.match(pattern);
+                if (match && match[1]) {
+                    const name = match[1].trim();
+                    if (name && name !== 'YouTube' && !name.startsWith('http')) {
+                        this.logger.log(`Found channel name via scraping: ${name}`);
+                        return name;
+                    }
+                }
+            }
+            return null;
+        }
+        catch (error) {
+            this.logger.error(`Error scraping channel name: ${error}`);
+            return null;
+        }
+    }
+    extractVideoId(url) {
+        const match = url.match(/(?:watch\?v=|youtu\.be\/|v\/)([a-zA-Z0-9_-]{11})/);
+        return match ? match[1] : '';
+    }
     async getRssXml(slug) {
         const feed = await this.findOne(slug);
         const baseUrl = process.env.APP_URL || 'http://localhost:3000';
@@ -189,77 +318,68 @@ let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeF
         if (feed.channelId) {
             try {
                 this.logger.log(`Fetching videos for YouTube channel: ${feed.channelId}`);
-                const youtubeRssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${feed.channelId}`;
-                this.logger.log(`Trying YouTube native RSS: ${youtubeRssUrl}`);
+                const baseChannelId = feed.channelId.startsWith('UC')
+                    ? feed.channelId.substring(2)
+                    : feed.channelId;
+                const uploadsRssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${feed.channelId}`;
+                const livesRssUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=UULV${baseChannelId}`;
+                this.logger.log(`Fetching uploads from: ${uploadsRssUrl}`);
+                this.logger.log(`Fetching lives from: ${livesRssUrl}`);
+                let videoItems = [];
                 try {
-                    const parsed = await this.rssParserService.parseUrl(youtubeRssUrl);
-                    this.logger.debug(`YouTube RSS parsed: ${JSON.stringify({
-                        hasItems: !!parsed?.items,
-                        itemsCount: parsed?.items?.length || 0
-                    })}`);
-                    if (parsed && parsed.items && parsed.items.length > 0) {
-                        items = parsed.items.slice(0, 20).map(item => {
-                            const videoLink = item.url || '';
-                            let finalLink = videoLink;
-                            if (videoLink && !videoLink.includes('watch?v=')) {
-                                const videoIdMatch = videoLink.match(/\/video\/([a-zA-Z0-9_-]+)/);
-                                if (videoIdMatch) {
-                                    finalLink = `https://www.youtube.com/watch?v=${videoIdMatch[1]}`;
-                                }
-                            }
-                            const title = item.title || '';
-                            const excerpt = item.excerpt || '';
-                            const isLive = /(?:live|ao vivo|streaming|🔴|LIVE)/i.test(title + ' ' + excerpt);
-                            return {
-                                title: item.title || 'Sem título',
-                                subtitle: item.excerpt || '',
-                                link: finalLink || videoLink,
-                                imageUrl: item.thumbnailUrl,
-                                publishedAt: item.publishedAt,
-                                isLive: isLive,
-                            };
-                        });
-                        items.sort((a, b) => {
-                            if (a.isLive && !b.isLive)
-                                return -1;
-                            if (!a.isLive && b.isLive)
-                                return 1;
-                            const dateA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
-                            const dateB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
-                            return dateB - dateA;
-                        });
-                        this.logger.log(`Successfully fetched ${items.length} videos from YouTube RSS for feed: ${feed.slug} (${items.filter(i => i.isLive).length} lives)`);
-                    }
-                    else {
-                        this.logger.warn(`YouTube RSS returned no items for channel ${feed.channelId}`);
-                        throw new Error('No items in YouTube RSS');
+                    const uploadsParsed = await this.rssParserService.parseUrl(uploadsRssUrl);
+                    if (uploadsParsed && uploadsParsed.items && uploadsParsed.items.length > 0) {
+                        videoItems = uploadsParsed.items.slice(0, 20).map(item => ({
+                            title: item.title || 'Sem título',
+                            subtitle: item.excerpt || '',
+                            link: item.url || '',
+                            imageUrl: item.thumbnailUrl,
+                            publishedAt: item.publishedAt,
+                            isLive: false,
+                            videoId: this.extractVideoId(item.url || ''),
+                        }));
                     }
                 }
-                catch (rssError) {
-                    this.logger.warn(`YouTube RSS failed for channel ${feed.channelId}, trying API: ${rssError}`);
-                    const videos = await this.youtubeApi.getRecentVideos(feed.channelId, undefined, 20);
-                    items = videos.map((video) => {
-                        const isLive = video.isLive || /(?:live|ao vivo|streaming|🔴|LIVE)/i.test(video.title + ' ' + video.description);
-                        return {
-                            title: video.title,
-                            subtitle: video.description,
-                            link: `https://www.youtube.com/watch?v=${video.videoId}`,
-                            imageUrl: video.thumbnailUrl,
-                            publishedAt: video.publishedAt,
-                            isLive: isLive,
+                catch (uploadsError) {
+                    this.logger.warn(`Failed to fetch uploads: ${uploadsError}`);
+                }
+                let currentLive = null;
+                try {
+                    const livesParsed = await this.rssParserService.parseUrl(livesRssUrl);
+                    if (livesParsed && livesParsed.items && livesParsed.items.length > 0) {
+                        const firstLive = livesParsed.items[0];
+                        const liveVideoId = this.extractVideoId(firstLive.url || '');
+                        const publishedDate = new Date(firstLive.publishedAt || 0);
+                        const now = new Date();
+                        const hoursAgo = (now.getTime() - publishedDate.getTime()) / (1000 * 60 * 60);
+                        const isLikelyActive = hoursAgo < 24;
+                        currentLive = {
+                            title: firstLive.title || 'Live Stream',
+                            subtitle: firstLive.excerpt || '',
+                            link: firstLive.url || `https://www.youtube.com/watch?v=${liveVideoId}`,
+                            imageUrl: firstLive.thumbnailUrl,
+                            publishedAt: firstLive.publishedAt,
+                            isLive: isLikelyActive,
+                            videoId: liveVideoId,
                         };
-                    });
-                    items.sort((a, b) => {
-                        if (a.isLive && !b.isLive)
-                            return -1;
-                        if (!a.isLive && b.isLive)
-                            return 1;
-                        const dateA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
-                        const dateB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
-                        return dateB - dateA;
-                    });
-                    this.logger.log(`Fetched ${items.length} videos from API for feed: ${feed.slug} (${items.filter(i => i.isLive).length} lives)`);
+                        this.logger.log(`Found live stream: ${currentLive.title} (active: ${isLikelyActive}, hours ago: ${hoursAgo.toFixed(1)})`);
+                    }
                 }
+                catch (livesError) {
+                    this.logger.warn(`Failed to fetch lives playlist: ${livesError}`);
+                }
+                if (currentLive && currentLive.isLive) {
+                    items = [currentLive];
+                    for (const video of videoItems) {
+                        if (video.videoId !== currentLive.videoId) {
+                            items.push(video);
+                        }
+                    }
+                }
+                else {
+                    items = videoItems;
+                }
+                this.logger.log(`Successfully fetched ${items.length} items for feed: ${feed.slug} (lives: ${items.filter(i => i.isLive).length})`);
             }
             catch (error) {
                 this.logger.error(`Failed to fetch videos for feed ${feed.slug}: ${error}`);
@@ -353,8 +473,6 @@ exports.CustomYouTubeFeedService = CustomYouTubeFeedService;
 exports.CustomYouTubeFeedService = CustomYouTubeFeedService = CustomYouTubeFeedService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        youtube_service_1.YouTubeService,
-        youtube_api_service_1.YouTubeApiService,
         rss_parser_service_1.RssParserService,
         playwright_service_1.PlaywrightService])
 ], CustomYouTubeFeedService);

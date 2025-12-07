@@ -24,6 +24,8 @@ const health_module_1 = require("./modules/health/health.module");
 const folder_module_1 = require("./modules/folder/folder.module");
 const custom_feed_module_1 = require("./modules/custom-feed/custom-feed.module");
 const custom_youtube_feed_module_1 = require("./modules/custom-youtube-feed/custom-youtube-feed.module");
+const bookmark_module_1 = require("./modules/bookmark/bookmark.module");
+const search_module_1 = require("./modules/search/search.module");
 const jobs_module_1 = require("./jobs/jobs.module");
 let AppModule = class AppModule {
 };
@@ -66,6 +68,8 @@ exports.AppModule = AppModule = __decorate([
             folder_module_1.FolderModule,
             custom_feed_module_1.CustomFeedModule,
             custom_youtube_feed_module_1.CustomYouTubeFeedModule,
+            bookmark_module_1.BookmarkModule,
+            search_module_1.SearchModule,
             jobs_module_1.JobsModule,
         ],
     })

@@ -11,9 +11,12 @@ export declare class FeedCronService {
     private scraperService;
     private readonly logger;
     private readonly intervalMinutes;
+    private readonly batchSize;
+    private readonly concurrency;
     private isRunning;
     constructor(prisma: PrismaService, redis: RedisService, configService: ConfigService, feedService: FeedService, scraperService: ScraperService);
     handleFeedScraping(): Promise<void>;
     handleFailedFeedsRetry(): Promise<void>;
+    private processInBatches;
     private delay;
 }

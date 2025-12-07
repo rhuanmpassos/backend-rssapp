@@ -40,7 +40,7 @@ export class RssParserService {
   async parseUrl(rssUrl: string): Promise<ParsedFeed | null> {
     try {
       this.logger.log(`Parsing RSS feed: ${rssUrl}`);
-      
+
       const feed = await this.parser.parseURL(rssUrl);
 
       if (!feed || !feed.items) {
@@ -48,16 +48,30 @@ export class RssParserService {
         return null;
       }
 
+      // Extract base URL for resolving relative URLs
+      const baseUrl = feed.link || this.extractBaseUrl(rssUrl);
+      this.logger.debug(`Base URL for resolving relative paths: ${baseUrl}`);
+
       const items: ParsedFeedItem[] = feed.items
         .filter((item: any) => item.link || item.guid) // Only items with URLs
-        .map((item: any) => ({
-          url: item.link || item.guid || '',
-          title: item.title || 'Untitled',
-          excerpt: this.extractExcerpt(item),
-          thumbnailUrl: this.extractThumbnail(item),
-          author: item.creator || item.author,
-          publishedAt: item.pubDate ? new Date(item.pubDate) : undefined,
-        }));
+        .map((item: any) => {
+          const thumbnailUrl = this.extractThumbnail(item);
+          const resolvedThumbnail = thumbnailUrl ? this.resolveUrl(thumbnailUrl, baseUrl) : undefined;
+
+          // Log thumbnail resolution for debugging
+          if (thumbnailUrl && thumbnailUrl !== resolvedThumbnail) {
+            this.logger.debug(`Resolved thumbnail: ${thumbnailUrl} -> ${resolvedThumbnail}`);
+          }
+
+          return {
+            url: item.link || item.guid || '',
+            title: item.title || 'Untitled',
+            excerpt: this.extractExcerpt(item),
+            thumbnailUrl: resolvedThumbnail,
+            author: item.creator || item.author,
+            publishedAt: item.pubDate ? new Date(item.pubDate) : undefined,
+          };
+        });
 
       if (items.length === 0) {
         this.logger.warn(`RSS feed parsed but has no valid items: ${rssUrl}`);
@@ -65,6 +79,11 @@ export class RssParserService {
       }
 
       this.logger.log(`RSS feed parsed successfully: ${items.length} items found`);
+
+      // Log sample of items for debugging
+      if (items.length > 0) {
+        this.logger.debug(`Sample item: title="${items[0].title}", thumbnail="${items[0].thumbnailUrl}"`);
+      }
 
       return {
         title: feed.title || 'Untitled Feed',
@@ -75,6 +94,18 @@ export class RssParserService {
     } catch (error) {
       this.logger.error(`Failed to parse RSS: ${rssUrl} - ${error}`);
       return null;
+    }
+  }
+
+  /**
+   * Extract base URL from RSS URL for resolving relative paths
+   */
+  private extractBaseUrl(rssUrl: string): string {
+    try {
+      const url = new URL(rssUrl);
+      return `${url.protocol}//${url.hostname}`;
+    } catch {
+      return '';
     }
   }
 

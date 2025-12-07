@@ -9,6 +9,7 @@ export interface ScrapedPage {
     publishedAt?: Date;
     canonicalUrl?: string;
     html: string;
+    confidence: number;
 }
 export declare class PlaywrightService implements OnModuleDestroy {
     private configService;
@@ -16,10 +17,15 @@ export declare class PlaywrightService implements OnModuleDestroy {
     private browser;
     private readonly timeout;
     private readonly userAgent;
+    private readonly ARTICLE_SELECTORS;
     constructor(configService: ConfigService);
     onModuleDestroy(): Promise<void>;
     private getBrowser;
     scrapePage(url: string): Promise<ScrapedPage | null>;
+    private extractJsonLd;
+    private extractThumbnailFromJsonLd;
+    private extractAuthorFromJsonLd;
+    private calculateConfidence;
     scrapeArticleLinks(url: string): Promise<string[]>;
     checkXRobotsTag(url: string): Promise<boolean>;
     private truncateExcerpt;

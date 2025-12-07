@@ -11,6 +11,8 @@ import { PushService } from '../modules/push/push.service';
 export class YouTubeCronService {
   private readonly logger = new Logger(YouTubeCronService.name);
   private readonly intervalMinutes: number;
+  private readonly batchSize: number;
+  private readonly concurrency: number;
   private isRunning = false;
 
   constructor(
@@ -25,89 +27,96 @@ export class YouTubeCronService {
       'CRON_YOUTUBE_INTERVAL_MINUTES',
       5,
     );
+    // New: configurable batch size and concurrency
+    this.batchSize = this.configService.get<number>('CRON_YOUTUBE_BATCH_SIZE', 30);
+    this.concurrency = this.configService.get<number>('CRON_YOUTUBE_CONCURRENCY', 6);
   }
 
-  // Run every 5 minutes by default (fallback polling when WebSub not working)
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  // Run every 3 minutes for faster updates
+  @Cron('*/3 * * * *')
   async handleYouTubePolling() {
     if (this.isRunning) {
       this.logger.debug('YouTube polling job already running, skipping');
       return;
     }
 
-    // Check quota before proceeding
-    const quota = await this.youtubeApi.getQuotaUsage();
-    if (quota.used > quota.limit * 0.9) {
-      this.logger.warn('YouTube API quota near limit, skipping polling');
-      return;
-    }
-
-    // Acquire global lock
-    const hasLock = await this.redis.acquireLock('cron:youtube-polling', 300);
+    // Acquire global lock with longer timeout for parallel processing
+    const hasLock = await this.redis.acquireLock('cron:youtube-polling', 600);
     if (!hasLock) {
       this.logger.debug('Another instance is running YouTube polling');
       return;
     }
 
     this.isRunning = true;
+    const startTime = Date.now();
 
     try {
-      this.logger.log('Starting scheduled YouTube polling');
+      this.logger.log(`Starting scheduled YouTube polling (batch: ${this.batchSize}, concurrency: ${this.concurrency})`);
 
       // Get channels that need checking
-      // Prioritize channels without active WebSub
-      const channels = await this.youtubeService.getChannelsToCheck(5);
+      const channels = await this.youtubeService.getChannelsToCheck(this.batchSize);
 
       this.logger.log(`Found ${channels.length} channels to check`);
 
-      for (const channel of channels) {
-        try {
-          // Skip if WebSub is active and not expired
-          if (
-            channel.websubExpiresAt &&
-            channel.websubExpiresAt > new Date()
-          ) {
-            this.logger.debug(
-              `Skipping ${channel.title} - WebSub active until ${channel.websubExpiresAt}`,
-            );
-            continue;
-          }
-
-          const result = await this.youtubeService.fetchAndSaveNewVideos(
-            channel.id,
+      // Filter out channels with active WebSub
+      const channelsToProcess = channels.filter((channel) => {
+        if (channel.websubExpiresAt && channel.websubExpiresAt > new Date()) {
+          this.logger.debug(
+            `Skipping ${channel.title} - WebSub active until ${channel.websubExpiresAt}`,
           );
+          return false;
+        }
+        return true;
+      });
 
-          if (result.created > 0) {
-            this.logger.log(
-              `Found ${result.created} new videos for ${channel.title}`,
-            );
+      this.logger.log(`Processing ${channelsToProcess.length} channels (${channels.length - channelsToProcess.length} skipped due to WebSub)`);
 
-            // Get the new videos for notifications
-            const newVideos = await this.youtubeService.getNewVideosSince(
+      // Process channels in parallel with concurrency limit
+      await this.processInBatches(
+        channelsToProcess,
+        this.concurrency,
+        async (channel) => {
+          try {
+            // Use RSS-based method (NO API QUOTA)
+            const result = await this.youtubeService.fetchAndSaveVideosFromRss(
               channel.id,
-              new Date(Date.now() - 10 * 60 * 1000), // Last 10 minutes
             );
 
-            for (const video of newVideos.slice(0, 3)) {
-              await this.pushService.notifyNewVideo(
+            if (result.created > 0) {
+              this.logger.log(
+                `Found ${result.created} new videos for ${channel.title}`,
+              );
+
+              // Get the new videos for notifications
+              const newVideos = await this.youtubeService.getNewVideosSince(
                 channel.id,
-                channel.title,
-                video.title,
-                video.videoId,
+                new Date(Date.now() - 10 * 60 * 1000), // Last 10 minutes
+              );
+
+              // Send notifications in parallel (max 3)
+              await Promise.all(
+                newVideos.slice(0, 3).map((video) =>
+                  this.pushService.notifyNewVideo(
+                    channel.id,
+                    channel.title,
+                    video.title,
+                    video.videoId,
+                  ).catch((err) => {
+                    this.logger.error(`Failed to send notification: ${err}`);
+                  })
+                )
               );
             }
+          } catch (error) {
+            this.logger.error(
+              `Error checking channel ${channel.title}: ${error}`,
+            );
           }
-
-          // Small delay between channels to avoid rate limiting
-          await this.delay(2000);
-        } catch (error) {
-          this.logger.error(
-            `Error checking channel ${channel.title}: ${error}`,
-          );
         }
-      }
+      );
 
-      this.logger.log('Finished scheduled YouTube polling');
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      this.logger.log(`Finished scheduled YouTube polling in ${duration}s (${channelsToProcess.length} channels)`);
     } catch (error) {
       this.logger.error(`YouTube cron job error: ${error}`);
     } finally {
@@ -121,7 +130,7 @@ export class YouTubeCronService {
   async handleQuotaReset() {
     try {
       this.logger.log('Daily quota check');
-      
+
       const quota = await this.youtubeApi.getQuotaUsage();
       this.logger.log(
         `YouTube API quota: ${quota.used}/${quota.limit} (${((quota.used / quota.limit) * 100).toFixed(1)}%)`,
@@ -138,10 +147,33 @@ export class YouTubeCronService {
     }
   }
 
+  /**
+   * Process items in parallel with concurrency limit
+   */
+  private async processInBatches<T>(
+    items: T[],
+    concurrency: number,
+    processor: (item: T) => Promise<void>
+  ): Promise<void> {
+    const chunks: T[][] = [];
+    for (let i = 0; i < items.length; i += concurrency) {
+      chunks.push(items.slice(i, i + concurrency));
+    }
+
+    for (const chunk of chunks) {
+      await Promise.all(chunk.map(processor));
+      // Small delay between batches to avoid rate limiting
+      if (chunks.indexOf(chunk) < chunks.length - 1) {
+        await this.delay(1000);
+      }
+    }
+  }
+
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
+
 
 
 

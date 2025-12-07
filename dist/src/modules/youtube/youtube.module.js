@@ -13,6 +13,8 @@ const config_1 = require("@nestjs/config");
 const youtube_controller_1 = require("./youtube.controller");
 const youtube_service_1 = require("./youtube.service");
 const youtube_api_service_1 = require("./youtube-api.service");
+const youtubei_service_1 = require("./youtubei.service");
+const scraper_module_1 = require("../../scraper/scraper.module");
 let YouTubeModule = class YouTubeModule {
 };
 exports.YouTubeModule = YouTubeModule;
@@ -24,10 +26,11 @@ exports.YouTubeModule = YouTubeModule = __decorate([
                 maxRedirects: 5,
             }),
             config_1.ConfigModule,
+            scraper_module_1.ScraperModule,
         ],
         controllers: [youtube_controller_1.YouTubeController],
-        providers: [youtube_service_1.YouTubeService, youtube_api_service_1.YouTubeApiService],
-        exports: [youtube_service_1.YouTubeService, youtube_api_service_1.YouTubeApiService],
+        providers: [youtube_service_1.YouTubeService, youtube_api_service_1.YouTubeApiService, youtubei_service_1.YoutubeiService],
+        exports: [youtube_service_1.YouTubeService, youtube_api_service_1.YouTubeApiService, youtubei_service_1.YoutubeiService],
     })
 ], YouTubeModule);
 //# sourceMappingURL=youtube.module.js.map

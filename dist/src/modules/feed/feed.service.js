@@ -93,13 +93,19 @@ let FeedService = FeedService_1 = class FeedService {
             }),
             this.prisma.feedItem.count({ where: { feedId: feed.id } }),
         ]);
+        const baseUrl = feed.url ? this.extractBaseUrl(feed.url) : '';
+        const resolvedItems = items.map(item => ({
+            ...item,
+            thumbnailUrl: this.resolveRelativeUrl(item.thumbnailUrl, baseUrl),
+        }));
+        this.logger.debug(`Returning ${resolvedItems.length} items for feed ${feedId}, baseUrl: ${baseUrl}`);
         return {
             feed: {
                 id: feed.id,
                 title: feed.title,
                 siteDomain: feed.siteDomain,
             },
-            data: items,
+            data: resolvedItems,
             meta: {
                 page,
                 limit,
@@ -107,6 +113,29 @@ let FeedService = FeedService_1 = class FeedService {
                 totalPages: Math.ceil(total / limit),
             },
         };
+    }
+    extractBaseUrl(url) {
+        try {
+            const parsed = new URL(url);
+            return `${parsed.protocol}//${parsed.hostname}`;
+        }
+        catch {
+            return '';
+        }
+    }
+    resolveRelativeUrl(url, baseUrl) {
+        if (!url)
+            return null;
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            return url;
+        }
+        if (baseUrl && url.startsWith('/')) {
+            return `${baseUrl}${url}`;
+        }
+        if (url.startsWith('//')) {
+            return `https:${url}`;
+        }
+        return url;
     }
     async updateFeed(feedId, data) {
         return this.prisma.feed.update({

@@ -45,7 +45,7 @@ export class ScraperService {
 
     // Process immediately and don't wait (fire and forget for speed)
     this.logger.log(`Queueing feed discovery for feed: ${feedId}`);
-    
+
     // Execute immediately without blocking
     this.discoverAndScrapeFeed(feedId).catch((err) => {
       this.logger.error(`Feed discovery failed for ${feedId}: ${err.message}`, err.stack);
@@ -95,7 +95,7 @@ export class ScraperService {
       // If feed already has rssUrl (e.g., custom YouTube feed), use it directly
       if (feed.rssUrl) {
         this.logger.log(`Feed already has RSS URL, using it directly: ${feed.rssUrl}`);
-        
+
         // Check if it's a custom YouTube feed RSS
         const isCustomYouTubeFeed = feed.rssUrl.includes('/custom-youtube-feeds/');
         if (isCustomYouTubeFeed) {
@@ -109,7 +109,7 @@ export class ScraperService {
             status: FeedStatus.active,
           });
         }
-        
+
         // Now scrape the feed
         this.logger.log(`Starting feed scrape for: ${feedId}`);
         try {
@@ -219,17 +219,17 @@ export class ScraperService {
       // Check if it's a custom YouTube feed - if so, get channel ID and use YouTube RSS directly
       const customYouTubeFeedMatch = feed.rssUrl.match(/\/custom-youtube-feeds\/([^\/]+)\/rss\.xml/);
       let actualRssUrl = feed.rssUrl;
-      
+
       if (customYouTubeFeedMatch) {
         const slug = customYouTubeFeedMatch[1];
         this.logger.log(`Detected custom YouTube feed: ${slug}, fetching channel info...`);
-        
+
         // Get the custom YouTube feed to find the channel ID
         const customYouTubeFeed = await this.prisma.customYouTubeFeed.findUnique({
           where: { slug },
           select: { channelId: true, title: true },
         });
-        
+
         if (customYouTubeFeed?.channelId) {
           // Use YouTube's native RSS directly instead of our endpoint
           actualRssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${customYouTubeFeed.channelId}`;
@@ -253,6 +253,8 @@ export class ScraperService {
       });
 
       // Process items
+      this.logger.log(`Processing ${parsed.items.length} items for feed ${feedId}`);
+
       let newItemsCount = 0;
       for (const item of parsed.items) {
         const existing = await this.prisma.feedItem.findFirst({
@@ -265,6 +267,9 @@ export class ScraperService {
         if (existing) {
           continue; // Skip existing items
         }
+
+        // Log item being saved
+        this.logger.debug(`Saving new item: title="${item.title}", thumbnail="${item.thumbnailUrl}"`);
 
         await this.feedItemService.createOrUpdate({
           feedId: feed.id,
@@ -406,7 +411,7 @@ export class ScraperService {
         const testUrl = path.startsWith('http') ? path : `${baseHref}${path}`;
         try {
           this.logger.log(`Trying RSS path: ${testUrl}`);
-          
+
           const parsed = await this.rssParser.parseUrl(testUrl);
           if (parsed && parsed.items && parsed.items.length > 0) {
             this.logger.log(`Found RSS feed at: ${testUrl} with ${parsed.items.length} items`);
@@ -427,7 +432,7 @@ export class ScraperService {
           // Parse HTML to find RSS links
           const rssLinkRegex = /<link[^>]+type=["'](?:application\/rss\+xml|application\/atom\+xml|text\/xml)["'][^>]+href=["']([^"']+)["']/gi;
           const matches = Array.from(scraped.html.matchAll(rssLinkRegex));
-          
+
           if (matches.length > 0) {
             const rssUrl = new URL(matches[0][1], siteUrl).href;
             this.logger.log(`Found RSS feed via page scraping: ${rssUrl}`);
@@ -456,13 +461,13 @@ export class ScraperService {
 
     try {
       this.logger.log(`Extracting articles from HTML for: ${siteUrl}`);
-      
+
       const feed = await this.feedService.getFeedById(feedId);
-      
+
       // Extract article links from the homepage
       this.logger.log(`Scraping article links from: ${siteUrl}`);
       const articleLinks = await this.playwright.scrapeArticleLinks(siteUrl);
-      
+
       if (!articleLinks || articleLinks.length === 0) {
         this.logger.warn(`No article links found on: ${siteUrl}`);
         this.logger.warn(`This might be due to: 1) Site blocking scrapers, 2) JavaScript required, 3) Incorrect selectors`);
@@ -484,7 +489,7 @@ export class ScraperService {
       const batchSize = 5;
       for (let i = 0; i < linksToProcess.length; i += batchSize) {
         const batch = linksToProcess.slice(i, i + batchSize);
-        
+
         await Promise.all(
           batch.map(async (articleUrl) => {
             try {
@@ -502,7 +507,7 @@ export class ScraperService {
 
               // Scrape article metadata
               const scraped = await this.playwright.scrapePage(articleUrl);
-              
+
               if (!scraped || !scraped.title) {
                 return; // Skip if no title
               }
