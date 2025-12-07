@@ -44,8 +44,8 @@ export declare class AdminService {
         id: string;
         createdAt: Date;
         result: import("@prisma/client/runtime/library").JsonValue | null;
-        target: string;
         status: import(".prisma/client").$Enums.JobStatus;
+        target: string;
         jobType: import(".prisma/client").$Enums.JobType;
         attempts: number;
         maxRetries: number;
@@ -55,12 +55,12 @@ export declare class AdminService {
     }[]>;
     getErrorFeeds(): Promise<{
         id: string;
-        title: string | null;
-        description: string | null;
         createdAt: Date;
         updatedAt: Date;
         url: string;
         siteDomain: string;
+        title: string | null;
+        description: string | null;
         rssUrl: string | null;
         faviconUrl: string | null;
         lastScrapeAt: Date | null;

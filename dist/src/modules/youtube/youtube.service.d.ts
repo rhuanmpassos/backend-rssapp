@@ -8,31 +8,31 @@ export declare class YouTubeService {
     resolveChannel(input: string): Promise<any>;
     getOrCreateChannel(info: YouTubeChannelInfo): Promise<{
         id: string;
-        channelId: string;
+        createdAt: Date;
+        updatedAt: Date;
         title: string;
         description: string | null;
+        channelId: string;
         thumbnailUrl: string | null;
         customUrl: string | null;
         lastCheckedAt: Date | null;
         websubTopicUrl: string | null;
         websubExpiresAt: Date | null;
         websubSecret: string | null;
-        createdAt: Date;
-        updatedAt: Date;
     }>;
     getChannelById(id: string): Promise<{
         id: string;
-        channelId: string;
+        createdAt: Date;
+        updatedAt: Date;
         title: string;
         description: string | null;
+        channelId: string;
         thumbnailUrl: string | null;
         customUrl: string | null;
         lastCheckedAt: Date | null;
         websubTopicUrl: string | null;
         websubExpiresAt: Date | null;
         websubSecret: string | null;
-        createdAt: Date;
-        updatedAt: Date;
     } | {
         id: string;
         channelId: string;
@@ -46,17 +46,17 @@ export declare class YouTubeService {
     }>;
     getChannelByYouTubeId(channelId: string): Promise<{
         id: string;
-        channelId: string;
+        createdAt: Date;
+        updatedAt: Date;
         title: string;
         description: string | null;
+        channelId: string;
         thumbnailUrl: string | null;
         customUrl: string | null;
         lastCheckedAt: Date | null;
         websubTopicUrl: string | null;
         websubExpiresAt: Date | null;
         websubSecret: string | null;
-        createdAt: Date;
-        updatedAt: Date;
     } | null>;
     listChannels(userId: string, page?: number, limit?: number): Promise<{
         data: (({
@@ -65,17 +65,17 @@ export declare class YouTubeService {
             };
         } & {
             id: string;
-            channelId: string;
+            createdAt: Date;
+            updatedAt: Date;
             title: string;
             description: string | null;
+            channelId: string;
             thumbnailUrl: string | null;
             customUrl: string | null;
             lastCheckedAt: Date | null;
             websubTopicUrl: string | null;
             websubExpiresAt: Date | null;
             websubSecret: string | null;
-            createdAt: Date;
-            updatedAt: Date;
         }) | {
             id: string;
             channelId: string;
@@ -158,17 +158,17 @@ export declare class YouTubeService {
     }>;
     getChannelsToCheck(limit?: number): Promise<{
         id: string;
-        channelId: string;
+        createdAt: Date;
+        updatedAt: Date;
         title: string;
         description: string | null;
+        channelId: string;
         thumbnailUrl: string | null;
         customUrl: string | null;
         lastCheckedAt: Date | null;
         websubTopicUrl: string | null;
         websubExpiresAt: Date | null;
         websubSecret: string | null;
-        createdAt: Date;
-        updatedAt: Date;
     }[]>;
     getNewVideosSince(channelDbId: string, since: Date): Promise<{
         id: string;

@@ -13,9 +13,16 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PrismaService = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
+const config_1 = require("../../config");
 let PrismaService = PrismaService_1 = class PrismaService extends client_1.PrismaClient {
     constructor() {
+        const databaseUrl = (0, config_1.getDatabaseUrl)();
         super({
+            datasources: {
+                db: {
+                    url: databaseUrl,
+                },
+            },
             log: [
                 { emit: 'event', level: 'query' },
                 { emit: 'stdout', level: 'info' },
@@ -24,6 +31,9 @@ let PrismaService = PrismaService_1 = class PrismaService extends client_1.Prism
             ],
         });
         this.logger = new common_1.Logger(PrismaService_1.name);
+        if (config_1.isDevelopment) {
+            this.logger.log(`Using database URL: ${databaseUrl.replace(/:[^:@]+@/, ':****@')}`);
+        }
     }
     async onModuleInit() {
         await this.$connect();

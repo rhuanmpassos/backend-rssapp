@@ -1,12 +1,20 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { getDatabaseUrl, isDevelopment } from '../../config';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
+    const databaseUrl = getDatabaseUrl();
+
     super({
+      datasources: {
+        db: {
+          url: databaseUrl,
+        },
+      },
       log: [
         { emit: 'event', level: 'query' },
         { emit: 'stdout', level: 'info' },
@@ -14,6 +22,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         { emit: 'stdout', level: 'error' },
       ],
     });
+
+    if (isDevelopment) {
+      this.logger.log(`Using database URL: ${databaseUrl.replace(/:[^:@]+@/, ':****@')}`);
+    }
   }
 
   async onModuleInit() {
@@ -44,4 +56,5 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.user.deleteMany();
   }
 }
+
 

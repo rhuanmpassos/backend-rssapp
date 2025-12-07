@@ -8,17 +8,17 @@ export declare class CustomYouTubeFeedController {
     create(dto: CreateCustomYouTubeFeedDto): Promise<{
         category: {
             id: string;
+            name: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
         } | null;
     } & {
         id: string;
-        channelId: string | null;
-        title: string;
-        description: string | null;
         createdAt: Date;
         updatedAt: Date;
+        title: string;
+        description: string | null;
+        channelId: string | null;
         slug: string;
         channelUrl: string | null;
         categoryId: string | null;
@@ -26,17 +26,17 @@ export declare class CustomYouTubeFeedController {
     findAll(): Promise<({
         category: {
             id: string;
+            name: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
         } | null;
     } & {
         id: string;
-        channelId: string | null;
-        title: string;
-        description: string | null;
         createdAt: Date;
         updatedAt: Date;
+        title: string;
+        description: string | null;
+        channelId: string | null;
         slug: string;
         channelUrl: string | null;
         categoryId: string | null;
@@ -44,17 +44,17 @@ export declare class CustomYouTubeFeedController {
     findPublicFeeds(): Promise<({
         category: {
             id: string;
+            name: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
         } | null;
     } & {
         id: string;
-        channelId: string | null;
-        title: string;
-        description: string | null;
         createdAt: Date;
         updatedAt: Date;
+        title: string;
+        description: string | null;
+        channelId: string | null;
         slug: string;
         channelUrl: string | null;
         categoryId: string | null;
@@ -62,17 +62,17 @@ export declare class CustomYouTubeFeedController {
     searchPublicFeeds(query?: string): Promise<({
         category: {
             id: string;
+            name: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
         } | null;
     } & {
         id: string;
-        channelId: string | null;
-        title: string;
-        description: string | null;
         createdAt: Date;
         updatedAt: Date;
+        title: string;
+        description: string | null;
+        channelId: string | null;
         slug: string;
         channelUrl: string | null;
         categoryId: string | null;
@@ -80,17 +80,17 @@ export declare class CustomYouTubeFeedController {
     findOne(slug: string): Promise<{
         category: {
             id: string;
+            name: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
         } | null;
     } & {
         id: string;
-        channelId: string | null;
-        title: string;
-        description: string | null;
         createdAt: Date;
         updatedAt: Date;
+        title: string;
+        description: string | null;
+        channelId: string | null;
         slug: string;
         channelUrl: string | null;
         categoryId: string | null;
@@ -99,17 +99,17 @@ export declare class CustomYouTubeFeedController {
     update(id: string, dto: UpdateCustomYouTubeFeedDto): Promise<{
         category: {
             id: string;
+            name: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
         } | null;
     } & {
         id: string;
-        channelId: string | null;
-        title: string;
-        description: string | null;
         createdAt: Date;
         updatedAt: Date;
+        title: string;
+        description: string | null;
+        channelId: string | null;
         slug: string;
         channelUrl: string | null;
         categoryId: string | null;

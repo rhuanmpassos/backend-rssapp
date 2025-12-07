@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "77d68a4c-3c72-4a01-82b5-73a26af7c089"
+      }
+    },
+    "android": {
+      "package": "com.rhuanmaciel.rssaggregatorbackend"
+    }
+  }
+}

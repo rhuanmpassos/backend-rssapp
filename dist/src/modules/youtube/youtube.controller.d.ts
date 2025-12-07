@@ -12,17 +12,17 @@ export declare class YouTubeController {
             };
         } & {
             id: string;
-            channelId: string;
+            createdAt: Date;
+            updatedAt: Date;
             title: string;
             description: string | null;
+            channelId: string;
             thumbnailUrl: string | null;
             customUrl: string | null;
             lastCheckedAt: Date | null;
             websubTopicUrl: string | null;
             websubExpiresAt: Date | null;
             websubSecret: string | null;
-            createdAt: Date;
-            updatedAt: Date;
         }) | {
             id: string;
             channelId: string;
@@ -46,17 +46,17 @@ export declare class YouTubeController {
     }>;
     getChannel(id: string): Promise<{
         id: string;
-        channelId: string;
+        createdAt: Date;
+        updatedAt: Date;
         title: string;
         description: string | null;
+        channelId: string;
         thumbnailUrl: string | null;
         customUrl: string | null;
         lastCheckedAt: Date | null;
         websubTopicUrl: string | null;
         websubExpiresAt: Date | null;
         websubSecret: string | null;
-        createdAt: Date;
-        updatedAt: Date;
     } | {
         id: string;
         channelId: string;

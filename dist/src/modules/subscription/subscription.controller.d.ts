@@ -6,18 +6,10 @@ export declare class SubscriptionController {
     private readonly subscriptionService;
     constructor(subscriptionService: SubscriptionService);
     subscribeSite(user: User, dto: CreateSiteSubscriptionDto): Promise<({
-        folder: {
-            id: string;
-            userId: string;
-            createdAt: Date;
-            name: string;
-            updatedAt: Date;
-            color: string | null;
-            order: number;
-        } | null;
         feed: {
             id: string;
             createdAt: Date;
+            updatedAt: Date;
             url: string;
             siteDomain: string;
             title: string | null;
@@ -27,14 +19,22 @@ export declare class SubscriptionController {
             lastScrapeAt: Date | null;
             status: import(".prisma/client").$Enums.FeedStatus;
             errorMessage: string | null;
+        } | null;
+        folder: {
+            id: string;
+            name: string;
+            createdAt: Date;
             updatedAt: Date;
+            userId: string;
+            order: number;
+            color: string | null;
         } | null;
     } & {
         id: string;
+        createdAt: Date;
         userId: string;
         type: import(".prisma/client").$Enums.SubscriptionType;
         target: string;
-        createdAt: Date;
         enabled: boolean;
         folderId: string | null;
         feedId: string | null;
@@ -44,10 +44,10 @@ export declare class SubscriptionController {
         channel: {
             id: string;
             createdAt: Date;
-            channelId: string;
+            updatedAt: Date;
             title: string;
             description: string | null;
-            updatedAt: Date;
+            channelId: string;
             thumbnailUrl: string | null;
             customUrl: string | null;
             lastCheckedAt: Date | null;
@@ -57,10 +57,10 @@ export declare class SubscriptionController {
         } | null;
     } & {
         id: string;
+        createdAt: Date;
         userId: string;
         type: import(".prisma/client").$Enums.SubscriptionType;
         target: string;
-        createdAt: Date;
         enabled: boolean;
         folderId: string | null;
         feedId: string | null;
@@ -68,11 +68,6 @@ export declare class SubscriptionController {
     }>;
     listSubscriptions(user: User, page?: number, limit?: number, type?: 'site' | 'youtube'): Promise<{
         data: ({
-            folder: {
-                id: string;
-                name: string;
-                color: string | null;
-            } | null;
             feed: {
                 id: string;
                 siteDomain: string;
@@ -80,18 +75,23 @@ export declare class SubscriptionController {
                 faviconUrl: string | null;
                 status: import(".prisma/client").$Enums.FeedStatus;
             } | null;
+            folder: {
+                id: string;
+                name: string;
+                color: string | null;
+            } | null;
             channel: {
                 id: string;
-                channelId: string;
                 title: string;
+                channelId: string;
                 thumbnailUrl: string | null;
             } | null;
         } & {
             id: string;
+            createdAt: Date;
             userId: string;
             type: import(".prisma/client").$Enums.SubscriptionType;
             target: string;
-            createdAt: Date;
             enabled: boolean;
             folderId: string | null;
             feedId: string | null;
@@ -108,6 +108,7 @@ export declare class SubscriptionController {
         feed: {
             id: string;
             createdAt: Date;
+            updatedAt: Date;
             url: string;
             siteDomain: string;
             title: string | null;
@@ -117,15 +118,14 @@ export declare class SubscriptionController {
             lastScrapeAt: Date | null;
             status: import(".prisma/client").$Enums.FeedStatus;
             errorMessage: string | null;
-            updatedAt: Date;
         } | null;
         channel: {
             id: string;
             createdAt: Date;
-            channelId: string;
+            updatedAt: Date;
             title: string;
             description: string | null;
-            updatedAt: Date;
+            channelId: string;
             thumbnailUrl: string | null;
             customUrl: string | null;
             lastCheckedAt: Date | null;
@@ -135,10 +135,10 @@ export declare class SubscriptionController {
         } | null;
     } & {
         id: string;
+        createdAt: Date;
         userId: string;
         type: import(".prisma/client").$Enums.SubscriptionType;
         target: string;
-        createdAt: Date;
         enabled: boolean;
         folderId: string | null;
         feedId: string | null;
@@ -146,10 +146,10 @@ export declare class SubscriptionController {
     }>;
     toggleSubscription(user: User, id: string): Promise<{
         id: string;
+        createdAt: Date;
         userId: string;
         type: import(".prisma/client").$Enums.SubscriptionType;
         target: string;
-        createdAt: Date;
         enabled: boolean;
         folderId: string | null;
         feedId: string | null;
