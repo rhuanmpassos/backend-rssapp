@@ -9,10 +9,11 @@ export class YouTubeService {
   constructor(
     private prisma: PrismaService,
     private youtubeApi: YouTubeApiService,
-  ) {}
+  ) { }
 
   async resolveChannel(input: string): Promise<any> {
     let channelInfo: YouTubeChannelInfo | null = null;
+    let wasExplicitIdentifier = false; // Track if input was a URL, handle, or channel ID
 
     // Try to parse as YouTube URL
     const urlMatch = input.match(
@@ -21,6 +22,7 @@ export class YouTubeService {
 
     if (urlMatch) {
       const identifier = urlMatch[1];
+      wasExplicitIdentifier = true;
 
       // Check if it's a channel ID (starts with UC)
       if (identifier.startsWith('UC')) {
@@ -31,16 +33,23 @@ export class YouTubeService {
       }
     } else if (input.startsWith('@')) {
       // Handle format
+      wasExplicitIdentifier = true;
       channelInfo = await this.youtubeApi.getChannelByHandle(input);
     } else if (input.startsWith('UC')) {
       // Direct channel ID
+      wasExplicitIdentifier = true;
       channelInfo = await this.youtubeApi.getChannelById(input);
     } else {
-      // Search by name
+      // Search by name - only for plain text input (not URLs or handles)
       channelInfo = await this.youtubeApi.searchChannel(input);
     }
 
+    // If we had an explicit identifier (URL/handle/channelId) but didn't find the channel,
+    // DO NOT fall back to search - return null instead
     if (!channelInfo) {
+      if (wasExplicitIdentifier) {
+        this.logger.warn(`Could not resolve explicit channel identifier: ${input}`);
+      }
       return null;
     }
 
@@ -203,20 +212,20 @@ export class YouTubeService {
         const targetMatch = sub.target?.match(/\/custom-youtube-feeds\/([^\/]+)\/rss\.xml/);
         const rssMatch = sub.feed?.rssUrl?.match(/\/custom-youtube-feeds\/([^\/]+)\/rss\.xml/);
         slug = targetMatch ? targetMatch[1] : (rssMatch ? rssMatch[1] : null);
-        
+
         // If no slug found, try to extract channel ID from YouTube RSS URL
         if (!slug && sub.feed?.rssUrl?.includes('youtube.com/feeds/videos.xml')) {
           const channelIdMatch = sub.feed.rssUrl.match(/channel_id=([^&]+)/);
           slug = channelIdMatch ? channelIdMatch[1] : 'youtube';
         }
-        
+
         // Count feed items
         const videoCount = sub.feed?.id
           ? await this.prisma.feedItem.count({
-              where: { feedId: sub.feed.id },
-            })
+            where: { feedId: sub.feed.id },
+          })
           : 0;
-        
+
         return {
           id: `custom-${sub.id}`, // Use subscription ID with prefix
           channelId: slug || 'unknown',
@@ -237,7 +246,7 @@ export class YouTubeService {
     // Combine both types of channels
     const allChannels = [...youtubeChannels, ...customYouTubeChannels];
     const total = youtubeChannelsTotal + customYouTubeChannels.length;
-    
+
     this.logger.log(`Found ${youtubeChannelsTotal} regular channels and ${customYouTubeChannels.length} custom feeds for user ${userId}`);
 
     // Sort by lastCheckedAt or createdAt

@@ -22,9 +22,11 @@ let YouTubeService = YouTubeService_1 = class YouTubeService {
     }
     async resolveChannel(input) {
         let channelInfo = null;
+        let wasExplicitIdentifier = false;
         const urlMatch = input.match(/(?:youtube\.com\/(?:channel\/|c\/|@|user\/)?|youtu\.be\/)([^\/\?\s]+)/);
         if (urlMatch) {
             const identifier = urlMatch[1];
+            wasExplicitIdentifier = true;
             if (identifier.startsWith('UC')) {
                 channelInfo = await this.youtubeApi.getChannelById(identifier);
             }
@@ -33,15 +35,20 @@ let YouTubeService = YouTubeService_1 = class YouTubeService {
             }
         }
         else if (input.startsWith('@')) {
+            wasExplicitIdentifier = true;
             channelInfo = await this.youtubeApi.getChannelByHandle(input);
         }
         else if (input.startsWith('UC')) {
+            wasExplicitIdentifier = true;
             channelInfo = await this.youtubeApi.getChannelById(input);
         }
         else {
             channelInfo = await this.youtubeApi.searchChannel(input);
         }
         if (!channelInfo) {
+            if (wasExplicitIdentifier) {
+                this.logger.warn(`Could not resolve explicit channel identifier: ${input}`);
+            }
             return null;
         }
         return this.getOrCreateChannel(channelInfo);

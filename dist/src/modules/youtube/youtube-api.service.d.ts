@@ -27,8 +27,8 @@ export declare class YouTubeApiService {
     constructor(configService: ConfigService, prisma: PrismaService);
     searchChannel(query: string): Promise<YouTubeChannelInfo | null>;
     getChannelById(channelId: string): Promise<YouTubeChannelInfo | null>;
+    scrapeChannelInfo(handle: string): Promise<YouTubeChannelInfo | null>;
     getChannelByHandle(handle: string): Promise<YouTubeChannelInfo | null>;
-    private scrapeChannelId;
     getRecentVideos(channelId: string, publishedAfter?: Date, maxResults?: number): Promise<YouTubeVideoInfo[]>;
     getVideoDetails(videoIds: string[]): Promise<YouTubeVideoInfo[]>;
     private truncateDescription;

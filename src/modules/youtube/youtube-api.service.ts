@@ -106,11 +106,132 @@ export class YouTubeApiService {
     }
   }
 
-  async getChannelByHandle(handle: string): Promise<YouTubeChannelInfo | null> {
-    // Remove @ if present
+  /**
+   * Scrape channel info directly from YouTube page
+   * This is the primary method for getting channel data without using API
+   */
+  async scrapeChannelInfo(handle: string): Promise<YouTubeChannelInfo | null> {
     const cleanHandle = handle.replace(/^@/, '');
 
     try {
+      this.logger.log(`Scraping channel info for @${cleanHandle}...`);
+
+      const response = await fetch(`https://www.youtube.com/@${cleanHandle}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      });
+
+      if (!response.ok) {
+        this.logger.warn(`Failed to fetch YouTube page for @${cleanHandle}: ${response.status}`);
+        return null;
+      }
+
+      const html = await response.text();
+
+      // Extract channelId - use patterns that are specific to the page OWNER
+      // NOT from recommended videos or other content
+      let channelId: string | null = null;
+
+      // Pattern 1: Look for browseId in page metadata (most reliable)
+      const browseIdMatch = html.match(/"browseId":"(UC[a-zA-Z0-9_-]{22})"/);
+
+      // Pattern 2: Look for canonical link to channel
+      const canonicalMatch = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})">/);
+
+      // Pattern 3: Look for externalId in channel metadata
+      const externalIdMatch = html.match(/"externalId":"(UC[a-zA-Z0-9_-]{22})"/);
+
+      // Pattern 4: Look for channel URL in the about/header section
+      const channelUrlMatch = html.match(/youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})/);
+
+      // Pattern 5: Look for RSS feed link with channel_id
+      const rssMatch = html.match(/channel_id=(UC[a-zA-Z0-9_-]{22})/);
+
+      // Use the first match found (ordered by reliability)
+      if (canonicalMatch && canonicalMatch[1]) {
+        channelId = canonicalMatch[1];
+        this.logger.log(`Found channelId via canonical link: ${channelId}`);
+      } else if (browseIdMatch && browseIdMatch[1]) {
+        channelId = browseIdMatch[1];
+        this.logger.log(`Found channelId via browseId: ${channelId}`);
+      } else if (externalIdMatch && externalIdMatch[1]) {
+        channelId = externalIdMatch[1];
+        this.logger.log(`Found channelId via externalId: ${channelId}`);
+      } else if (rssMatch && rssMatch[1]) {
+        channelId = rssMatch[1];
+        this.logger.log(`Found channelId via RSS link: ${channelId}`);
+      } else if (channelUrlMatch && channelUrlMatch[1]) {
+        channelId = channelUrlMatch[1];
+        this.logger.log(`Found channelId via channel URL: ${channelId}`);
+      }
+
+      if (!channelId) {
+        this.logger.warn(`Could not find channelId in page HTML for @${cleanHandle}`);
+        return null;
+      }
+
+      // Extract title from og:title or page title
+      let title = cleanHandle;
+      const titleMatch = html.match(/<meta property="og:title" content="([^"]+)"/);
+      if (titleMatch && titleMatch[1]) {
+        title = titleMatch[1].replace(/ - YouTube$/, '');
+      } else {
+        const pageTitleMatch = html.match(/<title>([^<]+)<\/title>/);
+        if (pageTitleMatch && pageTitleMatch[1]) {
+          title = pageTitleMatch[1].replace(/ - YouTube$/, '');
+        }
+      }
+
+      // Extract description from og:description
+      let description = '';
+      const descMatch = html.match(/<meta property="og:description" content="([^"]+)"/);
+      if (descMatch && descMatch[1]) {
+        description = descMatch[1];
+      }
+
+      // Extract thumbnail from og:image
+      let thumbnailUrl = '';
+      const thumbMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+      if (thumbMatch && thumbMatch[1]) {
+        thumbnailUrl = thumbMatch[1];
+      }
+
+      this.logger.log(`Successfully scraped channel: ${title} (${channelId})`);
+
+      return {
+        channelId,
+        title,
+        description,
+        thumbnailUrl,
+        customUrl: `@${cleanHandle}`,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to scrape channel page for @${cleanHandle}: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Get channel by handle - tries API first, falls back to scraping
+   */
+  async getChannelByHandle(handle: string): Promise<YouTubeChannelInfo | null> {
+    const cleanHandle = handle.replace(/^@/, '');
+
+    // Try scraping first (more reliable for handles)
+    const scrapedInfo = await this.scrapeChannelInfo(cleanHandle);
+    if (scrapedInfo) {
+      return scrapedInfo;
+    }
+
+    // Fallback to API if scraping fails
+    try {
+      if (!this.apiKey) {
+        this.logger.warn('No API key configured and scraping failed');
+        return null;
+      }
+
       await this.trackApiCall('channels.list', 1);
 
       const params = new URLSearchParams({
@@ -121,10 +242,6 @@ export class YouTubeApiService {
 
       const response = await fetch(`${this.baseUrl}/channels?${params}`);
       const data = await response.json();
-
-      if (data.error) {
-        this.logger.error(`YouTube API error for handle ${cleanHandle}: ${data.error.message}`);
-      }
 
       if (data.items && data.items.length > 0) {
         const item = data.items[0];
@@ -137,58 +254,10 @@ export class YouTubeApiService {
         };
       }
 
-      // forHandle API failed - try scraping the YouTube page to get channelId
-      this.logger.warn(`forHandle API failed for @${cleanHandle}, trying to scrape channel page...`);
-
-      const scrapedChannelId = await this.scrapeChannelId(cleanHandle);
-      if (scrapedChannelId) {
-        this.logger.log(`Found channelId ${scrapedChannelId} via scraping for @${cleanHandle}`);
-        return this.getChannelById(scrapedChannelId);
-      }
-
-      this.logger.warn(`Channel handle @${cleanHandle} not found via API or scraping`);
+      this.logger.warn(`Channel @${cleanHandle} not found via API or scraping`);
       return null;
     } catch (error) {
       this.logger.error(`Failed to get channel by handle: ${error}`);
-      return null;
-    }
-  }
-
-  private async scrapeChannelId(handle: string): Promise<string | null> {
-    try {
-      const response = await fetch(`https://www.youtube.com/@${handle}`, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      });
-
-      if (!response.ok) {
-        this.logger.warn(`Failed to fetch YouTube page for @${handle}: ${response.status}`);
-        return null;
-      }
-
-      const html = await response.text();
-
-      // Try multiple patterns to find channelId
-      const patterns = [
-        /"channelId":"(UC[a-zA-Z0-9_-]{22})"/,
-        /"externalId":"(UC[a-zA-Z0-9_-]{22})"/,
-        /channel_id=(UC[a-zA-Z0-9_-]{22})/,
-        /<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})">/,
-      ];
-
-      for (const pattern of patterns) {
-        const match = html.match(pattern);
-        if (match && match[1]) {
-          return match[1];
-        }
-      }
-
-      this.logger.warn(`Could not find channelId in page HTML for @${handle}`);
-      return null;
-    } catch (error) {
-      this.logger.error(`Failed to scrape channel page for @${handle}: ${error}`);
       return null;
     }
   }

@@ -26,11 +26,11 @@ export class SubscriptionService {
     private folderService: FolderService,
     @Inject(forwardRef(() => CustomYouTubeFeedService))
     private customYouTubeFeedService: CustomYouTubeFeedService,
-  ) {}
+  ) { }
 
   async createSiteSubscription(userId: string, dto: CreateSiteSubscriptionDto) {
     this.logger.log(`Creating site subscription for user ${userId} with URL: ${dto.url}`);
-    
+
     // Validate URL format
     let validUrl: URL;
     try {
@@ -40,15 +40,15 @@ export class SubscriptionService {
     }
 
     // Check if this is a direct YouTube channel URL (e.g., youtube.com/@handle or youtube.com/channel/UC...)
-    const isYouTubeChannel = validUrl.hostname.includes('youtube.com') && 
-      (validUrl.pathname.startsWith('/@') || 
-       validUrl.pathname.startsWith('/channel/') || 
-       validUrl.pathname.startsWith('/c/') ||
-       validUrl.pathname.startsWith('/user/'));
+    const isYouTubeChannel = validUrl.hostname.includes('youtube.com') &&
+      (validUrl.pathname.startsWith('/@') ||
+        validUrl.pathname.startsWith('/channel/') ||
+        validUrl.pathname.startsWith('/c/') ||
+        validUrl.pathname.startsWith('/user/'));
 
     if (isYouTubeChannel) {
       this.logger.log(`Detected YouTube channel URL: ${dto.url}, creating custom feed...`);
-      
+
       // Extract a slug from the URL (handle or channel ID)
       let slug: string;
       if (validUrl.pathname.startsWith('/@')) {
@@ -94,7 +94,7 @@ export class SubscriptionService {
         const baseUrl = process.env.APP_URL || 'http://localhost:3000';
         dto.url = `${baseUrl}/api/v1/custom-youtube-feeds/${customYouTubeFeed.slug}/rss.xml`;
         this.logger.log(`Redirecting subscription to custom feed RSS: ${dto.url}`);
-        
+
         // Update validUrl with the new RSS URL
         validUrl = new URL(dto.url);
       }
@@ -117,7 +117,7 @@ export class SubscriptionService {
       if (customFeed && customFeed.siteUrl) {
         // Use the siteUrl for the feed, but keep the RSS URL as target
         targetUrl = customFeed.siteUrl;
-        
+
         // If custom feed has a category and no folder was provided, create/get folder
         if (customFeed.category && !folderId) {
           const categoryName = customFeed.category.name;
@@ -136,7 +136,7 @@ export class SubscriptionService {
       if (customYouTubeFeed && customYouTubeFeed.channelUrl) {
         // Use the channelUrl for the feed, but keep the RSS URL as target
         targetUrl = customYouTubeFeed.channelUrl;
-        
+
         // If custom feed has a category and no folder was provided, create/get folder
         if (customYouTubeFeed.category && !folderId) {
           const categoryName = customYouTubeFeed.category.name;
@@ -189,7 +189,7 @@ export class SubscriptionService {
           where: { slug },
           select: { title: true },
         });
-        
+
         const domain = new URL(validUrl.href).hostname;
         feed = await this.prisma.feed.create({
           data: {
@@ -201,13 +201,13 @@ export class SubscriptionService {
           },
         });
         this.logger.log(`Created feed for custom YouTube feed with RSS URL: ${validUrl.href}`);
-        
+
         // Mark as active and trigger scrape - the scraper will detect rssUrl and use it directly
         await this.prisma.feed.update({
           where: { id: feed.id },
           data: { status: FeedStatus.active },
         });
-        
+
         // Queue feed discovery - the scraper will see rssUrl exists and use it directly
         this.feedService.queueFeedDiscovery(feed.id).catch((err) => {
           this.logger.error(`Failed to queue feed discovery: ${err.message}`);
@@ -327,7 +327,7 @@ export class SubscriptionService {
     const where: any = { userId };
     if (type) {
       where.type = type;
-      
+
       // If filtering by 'site', exclude YouTube channel subscriptions
       // (subscriptions that target custom-youtube-feeds or have youtube.com as siteDomain)
       if (type === 'site') {
