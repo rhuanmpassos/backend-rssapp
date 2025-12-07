@@ -99,32 +99,7 @@ let YouTubeApiService = YouTubeApiService_1 = class YouTubeApiService {
                 return null;
             }
             const html = await response.text();
-            let channelId = null;
-            const browseIdMatch = html.match(/"browseId":"(UC[a-zA-Z0-9_-]{22})"/);
-            const canonicalMatch = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})">/);
-            const externalIdMatch = html.match(/"externalId":"(UC[a-zA-Z0-9_-]{22})"/);
-            const channelUrlMatch = html.match(/youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})/);
-            const rssMatch = html.match(/channel_id=(UC[a-zA-Z0-9_-]{22})/);
-            if (canonicalMatch && canonicalMatch[1]) {
-                channelId = canonicalMatch[1];
-                this.logger.log(`Found channelId via canonical link: ${channelId}`);
-            }
-            else if (browseIdMatch && browseIdMatch[1]) {
-                channelId = browseIdMatch[1];
-                this.logger.log(`Found channelId via browseId: ${channelId}`);
-            }
-            else if (externalIdMatch && externalIdMatch[1]) {
-                channelId = externalIdMatch[1];
-                this.logger.log(`Found channelId via externalId: ${channelId}`);
-            }
-            else if (rssMatch && rssMatch[1]) {
-                channelId = rssMatch[1];
-                this.logger.log(`Found channelId via RSS link: ${channelId}`);
-            }
-            else if (channelUrlMatch && channelUrlMatch[1]) {
-                channelId = channelUrlMatch[1];
-                this.logger.log(`Found channelId via channel URL: ${channelId}`);
-            }
+            const channelId = this.extractChannelId(html, cleanHandle);
             if (!channelId) {
                 this.logger.warn(`Could not find channelId in page HTML for @${cleanHandle}`);
                 return null;
@@ -163,6 +138,53 @@ let YouTubeApiService = YouTubeApiService_1 = class YouTubeApiService {
             this.logger.error(`Failed to scrape channel page for @${cleanHandle}: ${error}`);
             return null;
         }
+    }
+    extractChannelId(html, handle) {
+        const candidates = [];
+        const canonicalMatch = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/);
+        if (canonicalMatch?.[1]) {
+            candidates.push({ id: canonicalMatch[1], source: 'canonical', priority: 1 });
+            this.logger.debug(`Found channelId via canonical link: ${canonicalMatch[1]}`);
+        }
+        const rssMatch = html.match(/<link rel="alternate" type="application\/rss\+xml"[^>]+channel_id=(UC[a-zA-Z0-9_-]{22})/);
+        if (rssMatch?.[1]) {
+            candidates.push({ id: rssMatch[1], source: 'rss', priority: 2 });
+            this.logger.debug(`Found channelId via RSS link: ${rssMatch[1]}`);
+        }
+        const ogUrlMatch = html.match(/<meta property="og:url" content="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/);
+        if (ogUrlMatch?.[1]) {
+            candidates.push({ id: ogUrlMatch[1], source: 'og:url', priority: 3 });
+            this.logger.debug(`Found channelId via og:url: ${ogUrlMatch[1]}`);
+        }
+        const metadataMatch = html.match(/"channelMetadataRenderer":\{[^}]*?"externalId":"(UC[a-zA-Z0-9_-]{22})"/);
+        if (metadataMatch?.[1]) {
+            candidates.push({ id: metadataMatch[1], source: 'metadata', priority: 4 });
+            this.logger.debug(`Found channelId via channelMetadataRenderer: ${metadataMatch[1]}`);
+        }
+        const handleRegex = new RegExp(`"browseEndpoint":\\{"browseId":"(UC[a-zA-Z0-9_-]{22})","[^}]*"canonicalBaseUrl":"\\/@${handle}"`, 'i');
+        const browseMatch = html.match(handleRegex);
+        if (browseMatch?.[1]) {
+            candidates.push({ id: browseMatch[1], source: 'browseEndpoint', priority: 5 });
+            this.logger.debug(`Found channelId via browseEndpoint: ${browseMatch[1]}`);
+        }
+        const mainAppMatch = html.match(/"mainAppWebResponseContext"[^}]*?"channelId":"(UC[a-zA-Z0-9_-]{22})"/);
+        if (mainAppMatch?.[1]) {
+            candidates.push({ id: mainAppMatch[1], source: 'mainApp', priority: 6 });
+            this.logger.debug(`Found channelId via mainAppWebResponseContext: ${mainAppMatch[1]}`);
+        }
+        if (candidates.length === 0) {
+            return null;
+        }
+        candidates.sort((a, b) => a.priority - b.priority);
+        const topId = candidates[0].id;
+        const agreementCount = candidates.filter(c => c.id === topId).length;
+        if (agreementCount >= 2) {
+            this.logger.log(`Selected channelId ${topId} from ${candidates[0].source} (${agreementCount}/${candidates.length} sources agree)`);
+        }
+        else {
+            this.logger.log(`Selected channelId ${topId} from ${candidates[0].source} (sole high-priority match)`);
+        }
+        return topId;
     }
     async getChannelByHandle(handle) {
         const cleanHandle = handle.replace(/^@/, '');

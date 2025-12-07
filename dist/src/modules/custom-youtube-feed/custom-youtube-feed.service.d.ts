@@ -136,6 +136,7 @@ export declare class CustomYouTubeFeedService {
         }[];
     }>;
     private scrapeChannelInfo;
+    private extractCorrectChannelId;
     private scrapeChannelName;
     private extractVideoId;
     getRssXml(slug: string): Promise<string>;

@@ -8,34 +8,13 @@ export class YoutubeiService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      // Check if proxy is configured via environment variables
-      const proxyHost = process.env.PROXY_HOST || 'brd.superproxy.io';
-      const proxyPort = process.env.PROXY_PORT || '33335';
-      const proxyUser = process.env.PROXY_USER;
-      const proxyPass = process.env.PROXY_PASS;
-
-      if (proxyUser && proxyPass) {
-        // Configure proxy via environment variables (works with Node.js native fetch/undici)
-        const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyHost}:${proxyPort}`;
-        process.env.HTTPS_PROXY = proxyUrl;
-        process.env.HTTP_PROXY = proxyUrl;
-
-        // Disable SSL verification for Bright Data proxy (uses self-signed certs)
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
-        this.logger.log(`Youtubei.js configured with residential proxy: ${proxyHost}:${proxyPort}`);
-      } else {
-        this.logger.warn('No proxy configured - Youtubei.js may be blocked by YouTube in datacenter environments');
-      }
-
-      // Create Innertube (will automatically use HTTPS_PROXY env var)
-      // With residential proxy, we can use retrieve_player: true to get full video data
+      // Create Innertube without proxy (dual-feed approach doesn't need it)
       this.youtube = await Innertube.create({
         generate_session_locally: true,
-        retrieve_player: true, // Now enabled with residential proxy for full is_live, duration data
+        retrieve_player: false, // Disabled since we use RSS feeds for classification
       });
 
-      this.logger.log('Youtubei.js initialized successfully');
+      this.logger.log('Youtubei.js initialized successfully (no proxy)');
     } catch (error: any) {
       this.logger.warn(`Failed to initialize Youtubei.js: ${error?.message || error}`);
       if (error?.cause) {

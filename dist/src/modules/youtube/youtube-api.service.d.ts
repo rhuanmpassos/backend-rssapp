@@ -28,6 +28,7 @@ export declare class YouTubeApiService {
     searchChannel(query: string): Promise<YouTubeChannelInfo | null>;
     getChannelById(channelId: string): Promise<YouTubeChannelInfo | null>;
     scrapeChannelInfo(handle: string): Promise<YouTubeChannelInfo | null>;
+    private extractChannelId;
     getChannelByHandle(handle: string): Promise<YouTubeChannelInfo | null>;
     getRecentVideos(channelId: string, publishedAfter?: Date, maxResults?: number): Promise<YouTubeVideoInfo[]>;
     getVideoDetails(videoIds: string[]): Promise<YouTubeVideoInfo[]>;

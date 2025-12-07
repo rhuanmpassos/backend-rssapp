@@ -1,0 +1,31 @@
+﻿
+=== Testing Channel Scraping for @uStressed ===
+
+Fetching: https://www.youtube.com/@uStressed
+
+Ô£à Fetched HTML (1387700 bytes)
+
+=== Pattern Matching Results ===
+
+1. Canonical link: UChzRVlOfDxtLFvNHKSI1PLg
+2. externalId: UChzRVlOfDxtLFvNHKSI1PLg
+3. RSS link: UChzRVlOfDxtLFvNHKSI1PLg
+4. header.channelId: NOT FOUND
+5. RSS alt link: UChzRVlOfDxtLFvNHKSI1PLg
+
+=== Additional Debug Patterns ===
+
+All browseId matches: 114
+  1. UChzRVlOfDxtLFvNHKSI1PLg
+  2. UChzRVlOfDxtLFvNHKSI1PLg
+  3. UChzRVlOfDxtLFvNHKSI1PLg
+  4. UChzRVlOfDxtLFvNHKSI1PLg
+  5. UChzRVlOfDxtLFvNHKSI1PLg
+
+=== Channel ID Verification ===
+
+Correct uStressed ID (UChzRVlOfDxtLFvNHKSI1PLg) found: true
+Wrong uStressed XD ID (UCPSP19pNXtNNCnuwE7ZMFSg) found: true
+
+Page title (og:title): uStressed
+Vanity channel URL: NOT FOUND

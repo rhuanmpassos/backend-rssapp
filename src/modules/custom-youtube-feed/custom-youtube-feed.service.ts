@@ -255,6 +255,12 @@ export class CustomYouTubeFeedService {
 
   /**
    * Scrape channel info (ID and name) from YouTube URL
+   * 
+   * IMPORTANT: YouTube pages contain 100+ channel IDs (featured channels, related content, etc.)
+   * We use prioritized patterns that specifically identify the PAGE OWNER's channel:
+   * 1. Canonical URL - Most authoritative
+   * 2. RSS feed link - Specifically tied to the page owner
+   * 3. og:url meta tag - Also authoritative
    */
   private async scrapeChannelInfo(url: string): Promise<{ channelId: string; channelName: string | null } | null> {
     try {
@@ -275,23 +281,11 @@ export class CustomYouTubeFeedService {
         return null;
       }
 
-      // Extract channel ID
-      let channelId: string | null = null;
-      const channelIdPatterns = [
-        /"channelId":"([^"]+)"/,
-        /"externalId":"([^"]+)"/,
-        /channel_id=([^&"'\s]+)/,
-        /\/channel\/(UC[a-zA-Z0-9_-]{22})/,
-        /"browseId":"(UC[a-zA-Z0-9_-]{22})"/,
-      ];
+      const html = scraped.html;
 
-      for (const pattern of channelIdPatterns) {
-        const match = scraped.html.match(pattern);
-        if (match && match[1] && match[1].startsWith('UC')) {
-          channelId = match[1];
-          break;
-        }
-      }
+      // Extract channel ID using PRIORITIZED patterns
+      // These patterns specifically identify the page owner, not featured channels
+      const channelId = this.extractCorrectChannelId(html);
 
       if (!channelId) {
         this.logger.warn(`Could not extract channel ID from: ${normalizedUrl}`);
@@ -303,13 +297,11 @@ export class CustomYouTubeFeedService {
       const namePatterns = [
         /<meta property="og:title" content="([^"]+)"/,
         /<meta name="title" content="([^"]+)"/,
-        /"channelName":"([^"]+)"/,
-        /"name":"([^"]+)"/,
         /<title>([^<]+) - YouTube<\/title>/,
       ];
 
       for (const pattern of namePatterns) {
-        const match = scraped.html.match(pattern);
+        const match = html.match(pattern);
         if (match && match[1]) {
           const name = match[1].trim();
           if (name && name !== 'YouTube' && !name.startsWith('http')) {
@@ -325,6 +317,70 @@ export class CustomYouTubeFeedService {
       this.logger.error(`Error scraping channel info: ${error}`);
       return null;
     }
+  }
+
+  /**
+   * Extract the CORRECT channel ID from YouTube page HTML.
+   * Uses prioritized patterns that specifically identify the page owner.
+   */
+  private extractCorrectChannelId(html: string): string | null {
+    const candidates: { id: string; source: string; priority: number }[] = [];
+
+    // PRIORITY 1: Canonical URL - Most authoritative for page owner
+    // Format: <link rel="canonical" href="https://www.youtube.com/channel/UC...">
+    const canonicalMatch = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/);
+    if (canonicalMatch?.[1]) {
+      candidates.push({ id: canonicalMatch[1], source: 'canonical', priority: 1 });
+    }
+
+    // PRIORITY 2: RSS feed link - Specifically tied to the page owner
+    // Format: <link rel="alternate" type="application/rss+xml" ... channel_id=UC...>
+    const rssMatch = html.match(/<link rel="alternate" type="application\/rss\+xml"[^>]+channel_id=(UC[a-zA-Z0-9_-]{22})/);
+    if (rssMatch?.[1]) {
+      candidates.push({ id: rssMatch[1], source: 'rss', priority: 2 });
+    }
+
+    // PRIORITY 3: og:url meta tag
+    // Format: <meta property="og:url" content="https://www.youtube.com/channel/UC...">
+    const ogUrlMatch = html.match(/<meta property="og:url" content="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/);
+    if (ogUrlMatch?.[1]) {
+      candidates.push({ id: ogUrlMatch[1], source: 'og:url', priority: 3 });
+    }
+
+    // PRIORITY 4: channelMetadataRenderer.externalId (usually correct but can be wrong)
+    const metadataMatch = html.match(/"channelMetadataRenderer":\{[^}]*?"externalId":"(UC[a-zA-Z0-9_-]{22})"/);
+    if (metadataMatch?.[1]) {
+      candidates.push({ id: metadataMatch[1], source: 'metadata', priority: 4 });
+    }
+
+    // PRIORITY 5: Generic patterns (fallback only)
+    const genericPatterns = [
+      /"externalId":"(UC[a-zA-Z0-9_-]{22})"/,
+      /channel_id=(UC[a-zA-Z0-9_-]{22})/,
+      /\/channel\/(UC[a-zA-Z0-9_-]{22})/,
+    ];
+
+    for (const pattern of genericPatterns) {
+      const match = html.match(pattern);
+      if (match?.[1] && !candidates.find(c => c.id === match[1])) {
+        candidates.push({ id: match[1], source: 'generic', priority: 5 });
+        break; // Only take one generic match
+      }
+    }
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    // Sort by priority (lower = better)
+    candidates.sort((a, b) => a.priority - b.priority);
+
+    const selected = candidates[0];
+    const agreementCount = candidates.filter(c => c.id === selected.id).length;
+
+    this.logger.log(`Selected channel ID ${selected.id} from ${selected.source} (${agreementCount}/${candidates.length} sources agree)`);
+
+    return selected.id;
   }
 
   /**

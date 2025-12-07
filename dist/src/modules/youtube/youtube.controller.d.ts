@@ -79,13 +79,13 @@ export declare class YouTubeController {
         data: {
             id: string;
             videoId: string;
-            title: string;
-            description: string | null;
-            thumbnailUrl: string;
-            duration: number | null;
-            publishedAt: Date | null;
+            title: any;
+            description: any;
+            thumbnailUrl: any;
+            duration: null;
+            publishedAt: Date;
             fetchedAt: Date;
-            url: string;
+            url: any;
             isLive: boolean;
             videoType: import("./youtube.service").VideoType;
         }[];
@@ -104,20 +104,17 @@ export declare class YouTubeController {
             isCustomFeed?: undefined;
         };
         data: {
-            isLive: boolean;
-            videoType: import("./youtube.service").VideoType;
-            duration: number | null;
             id: string;
-            title: string;
-            description: string | null;
-            thumbnailUrl: string | null;
+            videoId: string;
+            title: any;
+            description: any;
+            thumbnailUrl: any;
+            duration: null;
             publishedAt: Date;
             fetchedAt: Date;
-            videoId: string;
-            isLiveContent: boolean;
-            channelDbId: string;
-            durationSecs: number | null;
-            classifiedAt: Date | null;
+            url: any;
+            isLive: boolean;
+            videoType: import("./youtube.service").VideoType;
         }[];
         meta: {
             page: number;

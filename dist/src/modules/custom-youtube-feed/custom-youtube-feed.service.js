@@ -229,21 +229,8 @@ let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeF
             if (!scraped || !scraped.html) {
                 return null;
             }
-            let channelId = null;
-            const channelIdPatterns = [
-                /"channelId":"([^"]+)"/,
-                /"externalId":"([^"]+)"/,
-                /channel_id=([^&"'\s]+)/,
-                /\/channel\/(UC[a-zA-Z0-9_-]{22})/,
-                /"browseId":"(UC[a-zA-Z0-9_-]{22})"/,
-            ];
-            for (const pattern of channelIdPatterns) {
-                const match = scraped.html.match(pattern);
-                if (match && match[1] && match[1].startsWith('UC')) {
-                    channelId = match[1];
-                    break;
-                }
-            }
+            const html = scraped.html;
+            const channelId = this.extractCorrectChannelId(html);
             if (!channelId) {
                 this.logger.warn(`Could not extract channel ID from: ${normalizedUrl}`);
                 return null;
@@ -252,12 +239,10 @@ let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeF
             const namePatterns = [
                 /<meta property="og:title" content="([^"]+)"/,
                 /<meta name="title" content="([^"]+)"/,
-                /"channelName":"([^"]+)"/,
-                /"name":"([^"]+)"/,
                 /<title>([^<]+) - YouTube<\/title>/,
             ];
             for (const pattern of namePatterns) {
-                const match = scraped.html.match(pattern);
+                const match = html.match(pattern);
                 if (match && match[1]) {
                     const name = match[1].trim();
                     if (name && name !== 'YouTube' && !name.startsWith('http')) {
@@ -273,6 +258,45 @@ let CustomYouTubeFeedService = CustomYouTubeFeedService_1 = class CustomYouTubeF
             this.logger.error(`Error scraping channel info: ${error}`);
             return null;
         }
+    }
+    extractCorrectChannelId(html) {
+        const candidates = [];
+        const canonicalMatch = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/);
+        if (canonicalMatch?.[1]) {
+            candidates.push({ id: canonicalMatch[1], source: 'canonical', priority: 1 });
+        }
+        const rssMatch = html.match(/<link rel="alternate" type="application\/rss\+xml"[^>]+channel_id=(UC[a-zA-Z0-9_-]{22})/);
+        if (rssMatch?.[1]) {
+            candidates.push({ id: rssMatch[1], source: 'rss', priority: 2 });
+        }
+        const ogUrlMatch = html.match(/<meta property="og:url" content="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/);
+        if (ogUrlMatch?.[1]) {
+            candidates.push({ id: ogUrlMatch[1], source: 'og:url', priority: 3 });
+        }
+        const metadataMatch = html.match(/"channelMetadataRenderer":\{[^}]*?"externalId":"(UC[a-zA-Z0-9_-]{22})"/);
+        if (metadataMatch?.[1]) {
+            candidates.push({ id: metadataMatch[1], source: 'metadata', priority: 4 });
+        }
+        const genericPatterns = [
+            /"externalId":"(UC[a-zA-Z0-9_-]{22})"/,
+            /channel_id=(UC[a-zA-Z0-9_-]{22})/,
+            /\/channel\/(UC[a-zA-Z0-9_-]{22})/,
+        ];
+        for (const pattern of genericPatterns) {
+            const match = html.match(pattern);
+            if (match?.[1] && !candidates.find(c => c.id === match[1])) {
+                candidates.push({ id: match[1], source: 'generic', priority: 5 });
+                break;
+            }
+        }
+        if (candidates.length === 0) {
+            return null;
+        }
+        candidates.sort((a, b) => a.priority - b.priority);
+        const selected = candidates[0];
+        const agreementCount = candidates.filter(c => c.id === selected.id).length;
+        this.logger.log(`Selected channel ID ${selected.id} from ${selected.source} (${agreementCount}/${candidates.length} sources agree)`);
+        return selected.id;
     }
     async scrapeChannelName(channelId) {
         try {

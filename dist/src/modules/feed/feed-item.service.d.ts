@@ -21,11 +21,11 @@ export declare class FeedItemService {
         title: string;
         feedId: string;
         thumbnailUrl: string | null;
+        publishedAt: Date | null;
+        fetchedAt: Date;
         author: string | null;
         canonicalUrl: string | null;
         excerpt: string | null;
-        publishedAt: Date | null;
-        fetchedAt: Date;
         contentHash: string;
     }>;
     bulkCreate(feedId: string, items: Omit<CreateFeedItemData, 'feedId'>[]): Promise<{
@@ -39,11 +39,11 @@ export declare class FeedItemService {
         title: string;
         feedId: string;
         thumbnailUrl: string | null;
+        publishedAt: Date | null;
+        fetchedAt: Date;
         author: string | null;
         canonicalUrl: string | null;
         excerpt: string | null;
-        publishedAt: Date | null;
-        fetchedAt: Date;
         contentHash: string;
     }[]>;
     getItemById(itemId: string): Promise<({
@@ -58,11 +58,11 @@ export declare class FeedItemService {
         title: string;
         feedId: string;
         thumbnailUrl: string | null;
+        publishedAt: Date | null;
+        fetchedAt: Date;
         author: string | null;
         canonicalUrl: string | null;
         excerpt: string | null;
-        publishedAt: Date | null;
-        fetchedAt: Date;
         contentHash: string;
     }) | null>;
     getNewItemsSince(feedId: string, since: Date): Promise<{
@@ -71,11 +71,11 @@ export declare class FeedItemService {
         title: string;
         feedId: string;
         thumbnailUrl: string | null;
+        publishedAt: Date | null;
+        fetchedAt: Date;
         author: string | null;
         canonicalUrl: string | null;
         excerpt: string | null;
-        publishedAt: Date | null;
-        fetchedAt: Date;
         contentHash: string;
     }[]>;
     private generateContentHash;

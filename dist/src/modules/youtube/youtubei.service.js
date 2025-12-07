@@ -17,25 +17,11 @@ let YoutubeiService = YoutubeiService_1 = class YoutubeiService {
     }
     async onModuleInit() {
         try {
-            const proxyHost = process.env.PROXY_HOST || 'brd.superproxy.io';
-            const proxyPort = process.env.PROXY_PORT || '33335';
-            const proxyUser = process.env.PROXY_USER;
-            const proxyPass = process.env.PROXY_PASS;
-            if (proxyUser && proxyPass) {
-                const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyHost}:${proxyPort}`;
-                process.env.HTTPS_PROXY = proxyUrl;
-                process.env.HTTP_PROXY = proxyUrl;
-                process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-                this.logger.log(`Youtubei.js configured with residential proxy: ${proxyHost}:${proxyPort}`);
-            }
-            else {
-                this.logger.warn('No proxy configured - Youtubei.js may be blocked by YouTube in datacenter environments');
-            }
             this.youtube = await youtubei_js_1.default.create({
                 generate_session_locally: true,
-                retrieve_player: true,
+                retrieve_player: false,
             });
-            this.logger.log('Youtubei.js initialized successfully');
+            this.logger.log('Youtubei.js initialized successfully (no proxy)');
         }
         catch (error) {
             this.logger.warn(`Failed to initialize Youtubei.js: ${error?.message || error}`);

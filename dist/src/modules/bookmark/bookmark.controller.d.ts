@@ -11,9 +11,9 @@ export declare class BookmarkController {
             title: string;
             userId: string;
             thumbnailUrl: string | null;
+            publishedAt: Date | null;
             source: string;
             excerpt: string | null;
-            publishedAt: Date | null;
             itemId: string;
             itemType: string;
             savedAt: Date;
@@ -31,9 +31,9 @@ export declare class BookmarkController {
         title: string;
         userId: string;
         thumbnailUrl: string | null;
+        publishedAt: Date | null;
         source: string;
         excerpt: string | null;
-        publishedAt: Date | null;
         itemId: string;
         itemType: string;
         savedAt: Date;
@@ -50,9 +50,9 @@ export declare class BookmarkController {
             title: string;
             userId: string;
             thumbnailUrl: string | null;
+            publishedAt: Date | null;
             source: string;
             excerpt: string | null;
-            publishedAt: Date | null;
             itemId: string;
             itemType: string;
             savedAt: Date;

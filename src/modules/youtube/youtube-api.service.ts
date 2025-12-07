@@ -109,6 +109,14 @@ export class YouTubeApiService {
   /**
    * Scrape channel info directly from YouTube page
    * This is the primary method for getting channel data without using API
+   * 
+   * The challenge: YouTube pages contain 100+ channel IDs (featured channels, related content, etc.)
+   * We need to reliably identify the PAGE OWNER's channel ID.
+   * 
+   * Strategy: Use multiple extraction patterns and prioritize based on reliability:
+   * 1. Canonical URL - This is the authoritative URL for the page owner
+   * 2. RSS feed link - Also specifically tied to the page owner
+   * 3. Metadata externalId - Usually correct but can be wrong for some channel layouts
    */
   async scrapeChannelInfo(handle: string): Promise<YouTubeChannelInfo | null> {
     const cleanHandle = handle.replace(/^@/, '');
@@ -130,42 +138,8 @@ export class YouTubeApiService {
 
       const html = await response.text();
 
-      // Extract channelId - use patterns that are specific to the page OWNER
-      // NOT from recommended videos or other content
-      let channelId: string | null = null;
-
-      // Pattern 1: Look for browseId in page metadata (most reliable)
-      const browseIdMatch = html.match(/"browseId":"(UC[a-zA-Z0-9_-]{22})"/);
-
-      // Pattern 2: Look for canonical link to channel
-      const canonicalMatch = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})">/);
-
-      // Pattern 3: Look for externalId in channel metadata
-      const externalIdMatch = html.match(/"externalId":"(UC[a-zA-Z0-9_-]{22})"/);
-
-      // Pattern 4: Look for channel URL in the about/header section
-      const channelUrlMatch = html.match(/youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})/);
-
-      // Pattern 5: Look for RSS feed link with channel_id
-      const rssMatch = html.match(/channel_id=(UC[a-zA-Z0-9_-]{22})/);
-
-      // Use the first match found (ordered by reliability)
-      if (canonicalMatch && canonicalMatch[1]) {
-        channelId = canonicalMatch[1];
-        this.logger.log(`Found channelId via canonical link: ${channelId}`);
-      } else if (browseIdMatch && browseIdMatch[1]) {
-        channelId = browseIdMatch[1];
-        this.logger.log(`Found channelId via browseId: ${channelId}`);
-      } else if (externalIdMatch && externalIdMatch[1]) {
-        channelId = externalIdMatch[1];
-        this.logger.log(`Found channelId via externalId: ${channelId}`);
-      } else if (rssMatch && rssMatch[1]) {
-        channelId = rssMatch[1];
-        this.logger.log(`Found channelId via RSS link: ${channelId}`);
-      } else if (channelUrlMatch && channelUrlMatch[1]) {
-        channelId = channelUrlMatch[1];
-        this.logger.log(`Found channelId via channel URL: ${channelId}`);
-      }
+      // Extract channelId using multiple patterns and validate
+      const channelId = this.extractChannelId(html, cleanHandle);
 
       if (!channelId) {
         this.logger.warn(`Could not find channelId in page HTML for @${cleanHandle}`);
@@ -211,6 +185,86 @@ export class YouTubeApiService {
       this.logger.error(`Failed to scrape channel page for @${cleanHandle}: ${error}`);
       return null;
     }
+  }
+
+  /**
+   * Extract the correct channel ID from YouTube page HTML using multiple patterns.
+   * Prioritizes patterns that are specifically tied to the page owner.
+   */
+  private extractChannelId(html: string, handle: string): string | null {
+    const candidates: { id: string; source: string; priority: number }[] = [];
+
+    // PRIORITY 1: Canonical URL - This is the authoritative URL for the page
+    // Format: <link rel="canonical" href="https://www.youtube.com/channel/UC...">
+    const canonicalMatch = html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/);
+    if (canonicalMatch?.[1]) {
+      candidates.push({ id: canonicalMatch[1], source: 'canonical', priority: 1 });
+      this.logger.debug(`Found channelId via canonical link: ${canonicalMatch[1]}`);
+    }
+
+    // PRIORITY 2: RSS feed link - Also specifically tied to the page owner
+    // Format: <link rel="alternate" type="application/rss+xml" ... channel_id=UC...>
+    const rssMatch = html.match(/<link rel="alternate" type="application\/rss\+xml"[^>]+channel_id=(UC[a-zA-Z0-9_-]{22})/);
+    if (rssMatch?.[1]) {
+      candidates.push({ id: rssMatch[1], source: 'rss', priority: 2 });
+      this.logger.debug(`Found channelId via RSS link: ${rssMatch[1]}`);
+    }
+
+    // PRIORITY 3: og:url meta tag (contains channel ID in the URL)
+    // Format: <meta property="og:url" content="https://www.youtube.com/channel/UC...">
+    const ogUrlMatch = html.match(/<meta property="og:url" content="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/);
+    if (ogUrlMatch?.[1]) {
+      candidates.push({ id: ogUrlMatch[1], source: 'og:url', priority: 3 });
+      this.logger.debug(`Found channelId via og:url: ${ogUrlMatch[1]}`);
+    }
+
+    // PRIORITY 4: channelMetadataRenderer.externalId (in ytInitialData JSON)
+    // This is usually correct but can be wrong for certain channel layouts
+    const metadataMatch = html.match(/"channelMetadataRenderer":\{[^}]*?"externalId":"(UC[a-zA-Z0-9_-]{22})"/);
+    if (metadataMatch?.[1]) {
+      candidates.push({ id: metadataMatch[1], source: 'metadata', priority: 4 });
+      this.logger.debug(`Found channelId via channelMetadataRenderer: ${metadataMatch[1]}`);
+    }
+
+    // PRIORITY 5: browseEndpoint with the channel's own canonicalBaseUrl
+    // Format: "browseEndpoint":{"browseId":"UC...","canonicalBaseUrl":"/@handle"
+    const handleRegex = new RegExp(
+      `"browseEndpoint":\\{"browseId":"(UC[a-zA-Z0-9_-]{22})","[^}]*"canonicalBaseUrl":"\\/@${handle}"`,
+      'i'
+    );
+    const browseMatch = html.match(handleRegex);
+    if (browseMatch?.[1]) {
+      candidates.push({ id: browseMatch[1], source: 'browseEndpoint', priority: 5 });
+      this.logger.debug(`Found channelId via browseEndpoint: ${browseMatch[1]}`);
+    }
+
+    // PRIORITY 6: mainAppWebResponseContext (server context)
+    // This can sometimes return featured channel IDs instead of the page owner
+    const mainAppMatch = html.match(/"mainAppWebResponseContext"[^}]*?"channelId":"(UC[a-zA-Z0-9_-]{22})"/);
+    if (mainAppMatch?.[1]) {
+      candidates.push({ id: mainAppMatch[1], source: 'mainApp', priority: 6 });
+      this.logger.debug(`Found channelId via mainAppWebResponseContext: ${mainAppMatch[1]}`);
+    }
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    // Sort by priority (lower number = higher priority)
+    candidates.sort((a, b) => a.priority - b.priority);
+
+    // Check if top candidates agree
+    const topId = candidates[0].id;
+    const agreementCount = candidates.filter(c => c.id === topId).length;
+
+    if (agreementCount >= 2) {
+      this.logger.log(`Selected channelId ${topId} from ${candidates[0].source} (${agreementCount}/${candidates.length} sources agree)`);
+    } else {
+      // If no agreement, prefer canonical/RSS (most authoritative)
+      this.logger.log(`Selected channelId ${topId} from ${candidates[0].source} (sole high-priority match)`);
+    }
+
+    return topId;
   }
 
   /**

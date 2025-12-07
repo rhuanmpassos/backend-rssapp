@@ -56,11 +56,11 @@ export declare class FeedController {
             url: string;
             title: string;
             feedId: string;
+            publishedAt: Date | null;
+            fetchedAt: Date;
             author: string | null;
             canonicalUrl: string | null;
             excerpt: string | null;
-            publishedAt: Date | null;
-            fetchedAt: Date;
             contentHash: string;
         }[];
         meta: {
@@ -82,11 +82,11 @@ export declare class FeedController {
         title: string;
         feedId: string;
         thumbnailUrl: string | null;
+        publishedAt: Date | null;
+        fetchedAt: Date;
         author: string | null;
         canonicalUrl: string | null;
         excerpt: string | null;
-        publishedAt: Date | null;
-        fetchedAt: Date;
         contentHash: string;
     }) | null>;
 }

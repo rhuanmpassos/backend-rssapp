@@ -26,15 +26,15 @@ export declare class CustomFeedController {
         selectors: import("@prisma/client/runtime/library").JsonValue | null;
     }>;
     findAll(): Promise<({
+        _count: {
+            items: number;
+        };
         category: {
             id: string;
             name: string;
             createdAt: Date;
             updatedAt: Date;
         } | null;
-        _count: {
-            items: number;
-        };
     } & {
         id: string;
         createdAt: Date;
@@ -92,21 +92,21 @@ export declare class CustomFeedController {
             updatedAt: Date;
             title: string;
             feedId: string;
+            publishedAt: Date;
             link: string;
             content: string | null;
-            publishedAt: Date;
             subtitle: string | null;
             imageUrl: string | null;
         }[];
+        _count: {
+            items: number;
+        };
         category: {
             id: string;
             name: string;
             createdAt: Date;
             updatedAt: Date;
         } | null;
-        _count: {
-            items: number;
-        };
     } & {
         id: string;
         createdAt: Date;
@@ -148,9 +148,9 @@ export declare class CustomFeedController {
         updatedAt: Date;
         title: string;
         feedId: string;
+        publishedAt: Date;
         link: string;
         content: string | null;
-        publishedAt: Date;
         subtitle: string | null;
         imageUrl: string | null;
     }>;
@@ -160,9 +160,9 @@ export declare class CustomFeedController {
         updatedAt: Date;
         title: string;
         feedId: string;
+        publishedAt: Date;
         link: string;
         content: string | null;
-        publishedAt: Date;
         subtitle: string | null;
         imageUrl: string | null;
     }>;

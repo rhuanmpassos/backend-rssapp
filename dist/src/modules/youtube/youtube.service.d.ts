@@ -115,13 +115,13 @@ export declare class YouTubeService {
         data: {
             id: string;
             videoId: string;
-            title: string;
-            description: string | null;
-            thumbnailUrl: string;
-            duration: number | null;
-            publishedAt: Date | null;
+            title: any;
+            description: any;
+            thumbnailUrl: any;
+            duration: null;
+            publishedAt: Date;
             fetchedAt: Date;
-            url: string;
+            url: any;
             isLive: boolean;
             videoType: VideoType;
         }[];
@@ -140,20 +140,17 @@ export declare class YouTubeService {
             isCustomFeed?: undefined;
         };
         data: {
-            isLive: boolean;
-            videoType: VideoType;
-            duration: number | null;
             id: string;
-            title: string;
-            description: string | null;
-            thumbnailUrl: string | null;
+            videoId: string;
+            title: any;
+            description: any;
+            thumbnailUrl: any;
+            duration: null;
             publishedAt: Date;
             fetchedAt: Date;
-            videoId: string;
-            isLiveContent: boolean;
-            channelDbId: string;
-            durationSecs: number | null;
-            classifiedAt: Date | null;
+            url: any;
+            isLive: boolean;
+            videoType: VideoType;
         }[];
         meta: {
             page: number;
@@ -189,14 +186,14 @@ export declare class YouTubeService {
         title: string;
         description: string | null;
         thumbnailUrl: string | null;
+        videoId: string;
+        channelDbId: string;
+        duration: string | null;
         publishedAt: Date;
         fetchedAt: Date;
-        videoId: string;
+        videoType: string | null;
         isLive: boolean;
         isLiveContent: boolean;
-        duration: string | null;
-        channelDbId: string;
-        videoType: string | null;
         durationSecs: number | null;
         classifiedAt: Date | null;
     }[]>;

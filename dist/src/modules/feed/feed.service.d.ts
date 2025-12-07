@@ -72,11 +72,11 @@ export declare class FeedService {
             url: string;
             title: string;
             feedId: string;
+            publishedAt: Date | null;
+            fetchedAt: Date;
             author: string | null;
             canonicalUrl: string | null;
             excerpt: string | null;
-            publishedAt: Date | null;
-            fetchedAt: Date;
             contentHash: string;
         }[];
         meta: {

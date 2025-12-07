@@ -260,91 +260,82 @@ let YouTubeService = YouTubeService_1 = class YouTubeService {
             if (!subscription || !subscription.feed) {
                 throw new common_1.NotFoundException('Custom YouTube feed not found');
             }
-            const [feedItems, total] = await Promise.all([
-                this.prisma.feedItem.findMany({
-                    where: { feedId: subscription.feed.id },
-                    orderBy: { publishedAt: 'desc' },
-                    skip,
-                    take: limit,
-                }),
-                this.prisma.feedItem.count({ where: { feedId: subscription.feed.id } }),
-            ]);
             const slugMatch = subscription.feed.rssUrl?.match(/\/custom-youtube-feeds\/([^\/]+)\/rss\.xml/);
             const slug = slugMatch ? slugMatch[1] : 'unknown';
             const customFeed = await this.prisma.customYouTubeFeed.findUnique({
                 where: { slug },
             });
-            let activeLiveVideoId = null;
-            try {
-                if (customFeed?.channelId) {
-                    this.logger.log(`Checking for active live on custom feed ${slug} (channel: ${customFeed.channelId})`);
-                    activeLiveVideoId = await this.youtubeiService.getActiveLiveVideoId(customFeed.channelId);
-                    if (activeLiveVideoId) {
-                        this.logger.log(`Active live found for custom feed ${slug}: ${activeLiveVideoId}`);
+            if (!customFeed?.channelId) {
+                throw new common_1.NotFoundException('Custom YouTube feed channel ID not found');
+            }
+            const channelId = customFeed.channelId;
+            const baseId = channelId.startsWith('UC') ? channelId.substring(2) : channelId;
+            const videosRssUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=UULF${baseId}`;
+            const livesRssUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=UULV${baseId}`;
+            this.logger.log(`Fetching dual feeds for ${slug}: UULF and UULV`);
+            const [videosFeed, livesFeed, activeLiveVideoId] = await Promise.all([
+                this.rssParserService.parseUrl(videosRssUrl).catch((e) => {
+                    this.logger.warn(`Failed to fetch UULF feed: ${e}`);
+                    return null;
+                }),
+                this.rssParserService.parseUrl(livesRssUrl).catch((e) => {
+                    this.logger.warn(`Failed to fetch UULV feed: ${e}`);
+                    return null;
+                }),
+                this.youtubeiService.getActiveLiveVideoId(channelId).catch((e) => {
+                    this.logger.warn(`Failed to check active live: ${e}`);
+                    return null;
+                }),
+            ]);
+            const extractVideoId = (url) => {
+                const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+                return match ? match[1] : null;
+            };
+            const parseRssItem = (item, videoType) => {
+                const videoId = extractVideoId(item.url || '');
+                if (!videoId)
+                    return null;
+                return {
+                    id: `${videoType}-${videoId}`,
+                    videoId,
+                    title: item.title || 'Untitled',
+                    description: item.excerpt || '',
+                    thumbnailUrl: item.thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    duration: null,
+                    publishedAt: item.publishedAt ? new Date(item.publishedAt) : new Date(),
+                    fetchedAt: new Date(),
+                    url: item.url || `https://www.youtube.com/watch?v=${videoId}`,
+                    isLive: false,
+                    videoType,
+                };
+            };
+            const regularVideos = (videosFeed?.items || [])
+                .slice(0, 15)
+                .map(item => parseRssItem(item, 'video'))
+                .filter((v) => v !== null);
+            const livesVods = (livesFeed?.items || [])
+                .slice(0, 15)
+                .map(item => parseRssItem(item, 'vod'))
+                .filter((v) => v !== null);
+            if (activeLiveVideoId) {
+                this.logger.log(`Active live found: ${activeLiveVideoId}`);
+                for (const video of livesVods) {
+                    if (video.videoId === activeLiveVideoId) {
+                        video.isLive = true;
+                        video.videoType = 'live';
+                        video.id = `live-${video.videoId}`;
                     }
                 }
             }
-            catch (e) {
-                this.logger.warn(`Failed to check active live for custom feed ${slug}: ${e}`);
-            }
-            const videoInfoPromises = feedItems.slice(0, 15).map(async (item) => {
-                const videoIdMatch = item.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
-                const videoId = videoIdMatch ? videoIdMatch[1] : null;
-                if (!videoId)
-                    return null;
-                const info = await this.youtubeiService.getVideoBasicInfo(videoId);
-                return { item, videoId, info };
+            let allVideos = [...livesVods, ...regularVideos];
+            const seenIds = new Set();
+            allVideos = allVideos.filter(v => {
+                if (seenIds.has(v.videoId))
+                    return false;
+                seenIds.add(v.videoId);
+                return true;
             });
-            const videoInfoResults = await Promise.all(videoInfoPromises);
-            let videos = videoInfoResults
-                .filter((result) => result !== null)
-                .map((result) => {
-                const { item, videoId, info } = result;
-                const isLive = activeLiveVideoId === videoId || (info?.isLive ?? false);
-                const isLiveContent = info?.isLiveContent ?? false;
-                const duration = info?.duration ?? null;
-                const videoType = classifyVideoType(duration, isLive, isLiveContent, item.title);
-                return {
-                    id: item.id,
-                    videoId: videoId,
-                    title: item.title,
-                    description: item.excerpt,
-                    thumbnailUrl: item.thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                    duration: duration,
-                    publishedAt: item.publishedAt,
-                    fetchedAt: item.fetchedAt,
-                    url: item.url,
-                    isLive,
-                    videoType,
-                };
-            });
-            this.logger.log(`Feed has ${videos.length} videos. Active live: ${activeLiveVideoId}`);
-            this.logger.log(`Video IDs in feed: ${videos.slice(0, 5).map(v => v.videoId).join(', ')}`);
-            const liveInFeed = videos.find(v => v.videoId === activeLiveVideoId);
-            this.logger.log(`Live video in feed? ${liveInFeed ? 'YES - isLive: ' + liveInFeed.isLive : 'NO'}`);
-            if (activeLiveVideoId && !videos.some(v => v.videoId === activeLiveVideoId)) {
-                this.logger.log(`Active live ${activeLiveVideoId} not in feed, adding dynamically`);
-                const liveInfo = await this.youtubeiService.getLiveVideoInfo(activeLiveVideoId);
-                if (liveInfo) {
-                    videos = [
-                        {
-                            id: `live-${activeLiveVideoId}`,
-                            videoId: activeLiveVideoId,
-                            title: liveInfo.title || '🔴 Live agora',
-                            description: liveInfo.description || '',
-                            thumbnailUrl: liveInfo.thumbnail || `https://i.ytimg.com/vi/${activeLiveVideoId}/hqdefault.jpg`,
-                            duration: null,
-                            publishedAt: new Date(),
-                            fetchedAt: new Date(),
-                            url: `https://www.youtube.com/watch?v=${activeLiveVideoId}`,
-                            isLive: true,
-                            videoType: 'live',
-                        },
-                        ...videos,
-                    ];
-                }
-            }
-            videos.sort((a, b) => {
+            allVideos.sort((a, b) => {
                 if (a.isLive && !b.isLive)
                     return -1;
                 if (!a.isLive && b.isLive)
@@ -353,6 +344,12 @@ let YouTubeService = YouTubeService_1 = class YouTubeService {
                 const dateB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
                 return dateB - dateA;
             });
+            const paginatedVideos = allVideos.slice(skip, skip + limit);
+            const total = allVideos.length;
+            const videoCount = allVideos.filter(v => v.videoType === 'video').length;
+            const vodCount = allVideos.filter(v => v.videoType === 'vod').length;
+            const liveCount = allVideos.filter(v => v.videoType === 'live').length;
+            this.logger.log(`Dual-feed result: ${videoCount} videos, ${vodCount} VODs, ${liveCount} lives`);
             const channelTitle = customFeed?.channelName || subscription.feed.title || 'Custom YouTube Feed';
             return {
                 channel: {
@@ -362,7 +359,7 @@ let YouTubeService = YouTubeService_1 = class YouTubeService {
                     thumbnailUrl: null,
                     isCustomFeed: true,
                 },
-                data: videos,
+                data: paginatedVideos,
                 meta: {
                     page,
                     limit,
@@ -372,51 +369,88 @@ let YouTubeService = YouTubeService_1 = class YouTubeService {
             };
         }
         const channel = await this.getChannelById(channelDbId);
-        const [videos, total] = await Promise.all([
-            this.prisma.youTubeVideo.findMany({
-                where: { channelDbId: channel.id },
-                orderBy: { publishedAt: 'desc' },
-                skip,
-                take: limit,
+        const channelId = channel.channelId;
+        const baseId = channelId.startsWith('UC') ? channelId.substring(2) : channelId;
+        const videosRssUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=UULF${baseId}`;
+        const livesRssUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=UULV${baseId}`;
+        this.logger.log(`Fetching dual feeds for channel ${channel.title}: UULF and UULV`);
+        const [videosFeed, livesFeed, activeLiveVideoId] = await Promise.all([
+            this.rssParserService.parseUrl(videosRssUrl).catch((e) => {
+                this.logger.warn(`Failed to fetch UULF feed for ${channel.title}: ${e}`);
+                return null;
             }),
-            this.prisma.youTubeVideo.count({ where: { channelDbId: channel.id } }),
+            this.rssParserService.parseUrl(livesRssUrl).catch((e) => {
+                this.logger.warn(`Failed to fetch UULV feed for ${channel.title}: ${e}`);
+                return null;
+            }),
+            this.youtubeiService.getActiveLiveVideoId(channelId).catch((e) => {
+                this.logger.warn(`Failed to check active live: ${e}`);
+                return null;
+            }),
         ]);
-        let activeLiveVideoId = null;
-        try {
-            if (channel.channelId) {
-                this.logger.log(`Checking for active live on channel: ${channel.channelId}`);
-                activeLiveVideoId = await this.youtubeiService.getActiveLiveVideoId(channel.channelId);
-                if (activeLiveVideoId) {
-                    this.logger.log(`Active live found: ${activeLiveVideoId}`);
-                }
-                else {
-                    this.logger.log(`No active live detected for channel ${channel.title}`);
+        const extractVideoId = (url) => {
+            const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+            return match ? match[1] : null;
+        };
+        const parseRssItem = (item, videoType) => {
+            const videoId = extractVideoId(item.url || '');
+            if (!videoId)
+                return null;
+            return {
+                id: `${videoType}-${videoId}`,
+                videoId,
+                title: item.title || 'Untitled',
+                description: item.excerpt || '',
+                thumbnailUrl: item.thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                duration: null,
+                publishedAt: item.publishedAt ? new Date(item.publishedAt) : new Date(),
+                fetchedAt: new Date(),
+                url: item.url || `https://www.youtube.com/watch?v=${videoId}`,
+                isLive: false,
+                videoType,
+            };
+        };
+        const regularVideos = (videosFeed?.items || [])
+            .slice(0, 20)
+            .map(item => parseRssItem(item, 'video'))
+            .filter((v) => v !== null);
+        const livesVods = (livesFeed?.items || [])
+            .slice(0, 20)
+            .map(item => parseRssItem(item, 'vod'))
+            .filter((v) => v !== null);
+        if (activeLiveVideoId) {
+            this.logger.log(`Active live found: ${activeLiveVideoId}`);
+            for (const video of livesVods) {
+                if (video.videoId === activeLiveVideoId) {
+                    video.isLive = true;
+                    video.videoType = 'live';
+                    video.id = `live-${video.videoId}`;
                 }
             }
         }
-        catch (e) {
-            this.logger.warn(`Failed to check active live for channel ${channel.channelId}: ${e}`);
-        }
-        this.logger.log(`Active live videoId: ${activeLiveVideoId}, checking ${videos.length} videos for type`);
-        const videoInfoPromises = videos.slice(0, 20).map(async (video) => {
-            const info = await this.youtubeiService.getVideoBasicInfo(video.videoId);
-            return { video, info };
+        let allVideos = [...livesVods, ...regularVideos];
+        const seenIds = new Set();
+        allVideos = allVideos.filter(v => {
+            if (seenIds.has(v.videoId))
+                return false;
+            seenIds.add(v.videoId);
+            return true;
         });
-        const videoInfoResults = await Promise.all(videoInfoPromises);
-        const videosWithType = videoInfoResults.map(({ video, info }) => {
-            const isLive = activeLiveVideoId === video.videoId || (info?.isLive ?? false);
-            const isLiveContent = info?.isLiveContent ?? false;
-            const duration = info?.duration ?? null;
-            const videoType = classifyVideoType(duration, isLive, isLiveContent, video.title);
-            return {
-                ...video,
-                isLive,
-                videoType,
-                duration,
-            };
+        allVideos.sort((a, b) => {
+            if (a.isLive && !b.isLive)
+                return -1;
+            if (!a.isLive && b.isLive)
+                return 1;
+            const dateA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+            const dateB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+            return dateB - dateA;
         });
-        const liveCount = videosWithType.filter(v => v.isLive).length;
-        this.logger.log(`Videos marked as live: ${liveCount}`);
+        const paginatedVideos = allVideos.slice(skip, skip + limit);
+        const total = allVideos.length;
+        const videoCount = allVideos.filter(v => v.videoType === 'video').length;
+        const vodCount = allVideos.filter(v => v.videoType === 'vod').length;
+        const liveCount = allVideos.filter(v => v.videoType === 'live').length;
+        this.logger.log(`Dual-feed result for ${channel.title}: ${videoCount} videos, ${vodCount} VODs, ${liveCount} lives`);
         return {
             channel: {
                 id: channel.id,
@@ -424,7 +458,7 @@ let YouTubeService = YouTubeService_1 = class YouTubeService {
                 title: channel.title,
                 thumbnailUrl: channel.thumbnailUrl,
             },
-            data: videosWithType,
+            data: paginatedVideos,
             meta: {
                 page,
                 limit,
@@ -508,89 +542,116 @@ let YouTubeService = YouTubeService_1 = class YouTubeService {
     }
     async fetchAndSaveVideosFromRss(channelDbId) {
         const channel = await this.getChannelById(channelDbId);
-        const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.channelId}`;
-        this.logger.log(`Fetching RSS feed for ${channel.title}: ${rssUrl}`);
+        const channelId = channel.channelId;
+        const baseId = channelId.startsWith('UC') ? channelId.substring(2) : channelId;
+        const videosRssUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=UULF${baseId}`;
+        const livesRssUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=UULV${baseId}`;
+        this.logger.log(`Fetching dual RSS feeds for ${channel.title}`);
         try {
-            const parsed = await this.rssParserService.parseUrl(rssUrl);
-            if (!parsed || !parsed.items || parsed.items.length === 0) {
-                this.logger.log(`No items in RSS feed for ${channel.title}`);
-                await this.prisma.youTubeChannel.update({
-                    where: { id: channelDbId },
-                    data: { lastCheckedAt: new Date() },
-                });
-                return { created: 0, skipped: 0 };
-            }
+            const [videosFeed, livesFeed] = await Promise.all([
+                this.rssParserService.parseUrl(videosRssUrl).catch((e) => {
+                    this.logger.warn(`Failed to fetch UULF feed: ${e}`);
+                    return null;
+                }),
+                this.rssParserService.parseUrl(livesRssUrl).catch((e) => {
+                    this.logger.warn(`Failed to fetch UULV feed: ${e}`);
+                    return null;
+                }),
+            ]);
             const results = { created: 0, skipped: 0 };
-            for (const item of parsed.items.slice(0, 15)) {
-                try {
-                    const videoIdMatch = item.url?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
-                    const videoId = videoIdMatch ? videoIdMatch[1] : null;
-                    if (!videoId) {
+            const extractVideoId = (url) => {
+                const match = url?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+                return match ? match[1] : null;
+            };
+            if (videosFeed?.items) {
+                for (const item of videosFeed.items.slice(0, 15)) {
+                    try {
+                        const videoId = extractVideoId(item.url || '');
+                        if (!videoId) {
+                            results.skipped++;
+                            continue;
+                        }
+                        const existing = await this.prisma.youTubeVideo.findUnique({
+                            where: { videoId },
+                        });
+                        if (existing) {
+                            results.skipped++;
+                            continue;
+                        }
+                        await this.prisma.youTubeVideo.create({
+                            data: {
+                                videoId,
+                                channelDbId,
+                                title: item.title || 'Untitled',
+                                description: item.excerpt?.slice(0, 500) || null,
+                                thumbnailUrl: item.thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                                duration: null,
+                                publishedAt: item.publishedAt ? new Date(item.publishedAt) : new Date(),
+                                videoType: 'video',
+                                isLive: false,
+                                isLiveContent: false,
+                                durationSecs: null,
+                                classifiedAt: new Date(),
+                            },
+                        });
+                        results.created++;
+                        this.logger.debug(`New video: ${videoId} → video (from UULF)`);
+                    }
+                    catch (error) {
+                        this.logger.error(`Failed to save video from RSS: ${error}`);
                         results.skipped++;
-                        continue;
                     }
-                    const existing = await this.prisma.youTubeVideo.findUnique({
-                        where: { videoId },
-                    });
-                    if (existing) {
-                        results.skipped++;
-                        continue;
-                    }
-                    const videoInfo = await this.youtubeiService.getVideoBasicInfo(videoId);
-                    let isLive = false;
-                    let isLiveContent = false;
-                    let durationSecs = null;
-                    let videoType = 'video';
-                    if (videoInfo) {
-                        isLive = videoInfo.isLive;
-                        isLiveContent = videoInfo.isLiveContent;
-                        durationSecs = videoInfo.duration > 0 ? videoInfo.duration : null;
-                        if (isLive) {
-                            videoType = 'live';
-                        }
-                        else if (isLiveContent) {
-                            videoType = 'vod';
-                        }
-                        else if (durationSecs && durationSecs <= 90) {
-                            videoType = 'short';
-                        }
-                        else {
-                            videoType = 'video';
-                        }
-                    }
-                    await this.prisma.youTubeVideo.create({
-                        data: {
-                            videoId,
-                            channelDbId,
-                            title: item.title || 'Untitled',
-                            description: item.excerpt?.slice(0, 500) || null,
-                            thumbnailUrl: item.thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                            duration: null,
-                            publishedAt: item.publishedAt ? new Date(item.publishedAt) : new Date(),
-                            videoType,
-                            isLive,
-                            isLiveContent,
-                            durationSecs,
-                            classifiedAt: new Date(),
-                        },
-                    });
-                    results.created++;
-                    this.logger.debug(`New video: ${videoId} → ${videoType}`);
                 }
-                catch (error) {
-                    this.logger.error(`Failed to save video from RSS: ${error}`);
-                    results.skipped++;
+            }
+            if (livesFeed?.items) {
+                for (const item of livesFeed.items.slice(0, 15)) {
+                    try {
+                        const videoId = extractVideoId(item.url || '');
+                        if (!videoId) {
+                            results.skipped++;
+                            continue;
+                        }
+                        const existing = await this.prisma.youTubeVideo.findUnique({
+                            where: { videoId },
+                        });
+                        if (existing) {
+                            results.skipped++;
+                            continue;
+                        }
+                        await this.prisma.youTubeVideo.create({
+                            data: {
+                                videoId,
+                                channelDbId,
+                                title: item.title || 'Untitled',
+                                description: item.excerpt?.slice(0, 500) || null,
+                                thumbnailUrl: item.thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                                duration: null,
+                                publishedAt: item.publishedAt ? new Date(item.publishedAt) : new Date(),
+                                videoType: 'vod',
+                                isLive: false,
+                                isLiveContent: true,
+                                durationSecs: null,
+                                classifiedAt: new Date(),
+                            },
+                        });
+                        results.created++;
+                        this.logger.debug(`New video: ${videoId} → vod (from UULV)`);
+                    }
+                    catch (error) {
+                        this.logger.error(`Failed to save live/VOD from RSS: ${error}`);
+                        results.skipped++;
+                    }
                 }
             }
             await this.prisma.youTubeChannel.update({
                 where: { id: channelDbId },
                 data: { lastCheckedAt: new Date() },
             });
-            this.logger.log(`RSS update for ${channel.title}: ${results.created} new, ${results.skipped} skipped`);
+            this.logger.log(`Dual-feed RSS update for ${channel.title}: ${results.created} new, ${results.skipped} skipped`);
             return results;
         }
         catch (error) {
-            this.logger.error(`Failed to fetch RSS feed for ${channel.title}: ${error}`);
+            this.logger.error(`Failed to fetch RSS feeds for ${channel.title}: ${error}`);
             return { created: 0, skipped: 0 };
         }
     }
