@@ -49,19 +49,37 @@ let FeedItemService = FeedItemService_1 = class FeedItemService {
             return existingItem;
         }
         this.logger.log(`Creating new feed item: ${data.title}`);
-        return this.prisma.feedItem.create({
-            data: {
-                feedId: data.feedId,
-                url: normalizedUrl,
-                canonicalUrl: data.canonicalUrl,
-                title: data.title,
-                excerpt: this.truncateExcerpt(data.excerpt),
-                thumbnailUrl: data.thumbnailUrl,
-                author: data.author,
-                publishedAt: data.publishedAt || new Date(),
-                contentHash,
-            },
-        });
+        try {
+            return await this.prisma.feedItem.create({
+                data: {
+                    feedId: data.feedId,
+                    url: normalizedUrl,
+                    canonicalUrl: data.canonicalUrl,
+                    title: data.title,
+                    excerpt: this.truncateExcerpt(data.excerpt),
+                    thumbnailUrl: data.thumbnailUrl,
+                    author: data.author,
+                    publishedAt: data.publishedAt || new Date(),
+                    contentHash,
+                },
+            });
+        }
+        catch (error) {
+            if (error?.code === 'P2002') {
+                this.logger.debug(`Item already exists (race condition), skipping: ${data.title}`);
+                const existing = await this.prisma.feedItem.findFirst({
+                    where: {
+                        feedId: data.feedId,
+                        OR: [
+                            { url: normalizedUrl },
+                            { contentHash },
+                        ],
+                    },
+                });
+                return existing;
+            }
+            throw error;
+        }
     }
     async bulkCreate(feedId, items) {
         const results = {

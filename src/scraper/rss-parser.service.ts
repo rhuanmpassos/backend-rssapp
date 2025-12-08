@@ -37,11 +37,92 @@ export class RssParserService {
     });
   }
 
+  /**
+   * Sanitize XML content to fix common entity issues
+   * This fixes "Invalid character in entity name" errors from feeds with unescaped & or HTML entities
+   */
+  private sanitizeXmlContent(xml: string): string {
+    // Replace common HTML entities with their XML equivalents
+    const htmlEntities: Record<string, string> = {
+      '&nbsp;': '&#160;',
+      '&copy;': '&#169;',
+      '&reg;': '&#174;',
+      '&trade;': '&#8482;',
+      '&mdash;': '&#8212;',
+      '&ndash;': '&#8211;',
+      '&lsquo;': '&#8216;',
+      '&rsquo;': '&#8217;',
+      '&ldquo;': '&#8220;',
+      '&rdquo;': '&#8221;',
+      '&bull;': '&#8226;',
+      '&hellip;': '&#8230;',
+      '&eacute;': '&#233;',
+      '&aacute;': '&#225;',
+      '&iacute;': '&#237;',
+      '&oacute;': '&#243;',
+      '&uacute;': '&#250;',
+      '&atilde;': '&#227;',
+      '&otilde;': '&#245;',
+      '&ccedil;': '&#231;',
+      '&Aacute;': '&#193;',
+      '&Eacute;': '&#201;',
+      '&Iacute;': '&#205;',
+      '&Oacute;': '&#211;',
+      '&Uacute;': '&#218;',
+      '&Atilde;': '&#195;',
+      '&Otilde;': '&#213;',
+      '&Ccedil;': '&#199;',
+      '&agrave;': '&#224;',
+      '&egrave;': '&#232;',
+      '&ograve;': '&#242;',
+      '&acirc;': '&#226;',
+      '&ecirc;': '&#234;',
+      '&ocirc;': '&#244;',
+      '&uuml;': '&#252;',
+      '&ouml;': '&#246;',
+      '&auml;': '&#228;',
+      '&ntilde;': '&#241;',
+    };
+
+    let sanitized = xml;
+
+    // Replace known HTML entities
+    for (const [entity, replacement] of Object.entries(htmlEntities)) {
+      sanitized = sanitized.replace(new RegExp(entity, 'gi'), replacement);
+    }
+
+    // Fix unescaped ampersands that aren't part of valid XML entities
+    // Valid XML entities: &amp; &lt; &gt; &apos; &quot; and numeric &#nnnn; or &#xhhhh;
+    sanitized = sanitized.replace(
+      /&(?!(amp|lt|gt|apos|quot|#\d+|#x[0-9a-fA-F]+);)/g,
+      '&amp;'
+    );
+
+    return sanitized;
+  }
+
   async parseUrl(rssUrl: string): Promise<ParsedFeed | null> {
     try {
       this.logger.log(`Parsing RSS feed: ${rssUrl}`);
 
-      const feed = await this.parser.parseURL(rssUrl);
+      // Fetch the content manually so we can sanitize it
+      const response = await fetch(rssUrl, {
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; RSSReader/1.0)',
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        },
+      });
+
+      if (!response.ok) {
+        this.logger.error(`Failed to fetch RSS: ${rssUrl} - HTTP ${response.status}`);
+        return null;
+      }
+
+      const rawXml = await response.text();
+      const sanitizedXml = this.sanitizeXmlContent(rawXml);
+
+      const feed = await this.parser.parseString(sanitizedXml);
 
       if (!feed || !feed.items) {
         this.logger.warn(`RSS feed has no items: ${rssUrl}`);

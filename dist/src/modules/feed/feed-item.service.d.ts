@@ -27,7 +27,7 @@ export declare class FeedItemService {
         canonicalUrl: string | null;
         excerpt: string | null;
         contentHash: string;
-    }>;
+    } | null>;
     bulkCreate(feedId: string, items: Omit<CreateFeedItemData, 'feedId'>[]): Promise<{
         created: number;
         updated: number;

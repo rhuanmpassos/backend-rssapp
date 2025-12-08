@@ -21,7 +21,7 @@ export class FeedItemService {
   constructor(
     private prisma: PrismaService,
     private feedService: FeedService,
-  ) {}
+  ) { }
 
   async createOrUpdate(data: CreateFeedItemData) {
     const normalizedUrl = this.feedService.normalizeUrl(data.url);
@@ -55,22 +55,41 @@ export class FeedItemService {
       return existingItem;
     }
 
-    // Create new item
+    // Create new item (with race condition handling)
     this.logger.log(`Creating new feed item: ${data.title}`);
-    
-    return this.prisma.feedItem.create({
-      data: {
-        feedId: data.feedId,
-        url: normalizedUrl,
-        canonicalUrl: data.canonicalUrl,
-        title: data.title,
-        excerpt: this.truncateExcerpt(data.excerpt),
-        thumbnailUrl: data.thumbnailUrl,
-        author: data.author,
-        publishedAt: data.publishedAt || new Date(),
-        contentHash,
-      },
-    });
+
+    try {
+      return await this.prisma.feedItem.create({
+        data: {
+          feedId: data.feedId,
+          url: normalizedUrl,
+          canonicalUrl: data.canonicalUrl,
+          title: data.title,
+          excerpt: this.truncateExcerpt(data.excerpt),
+          thumbnailUrl: data.thumbnailUrl,
+          author: data.author,
+          publishedAt: data.publishedAt || new Date(),
+          contentHash,
+        },
+      });
+    } catch (error: any) {
+      // Handle unique constraint violation (race condition - another process created it)
+      if (error?.code === 'P2002') {
+        this.logger.debug(`Item already exists (race condition), skipping: ${data.title}`);
+        // Return the existing item
+        const existing = await this.prisma.feedItem.findFirst({
+          where: {
+            feedId: data.feedId,
+            OR: [
+              { url: normalizedUrl },
+              { contentHash },
+            ],
+          },
+        });
+        return existing;
+      }
+      throw error;
+    }
   }
 
   async bulkCreate(feedId: string, items: Omit<CreateFeedItemData, 'feedId'>[]) {
