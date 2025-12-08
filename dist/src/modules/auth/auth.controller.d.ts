@@ -17,6 +17,7 @@ export declare class AuthController {
         createdAt: Date;
         preferences: import("@prisma/client/runtime/library").JsonValue;
     } | null>;
+    refreshToken(user: User): Promise<import("./auth.service").AuthResponse>;
     updateProfile(user: User, dto: UpdateProfileDto): Promise<{
         id: string;
         email: string;

@@ -28,7 +28,7 @@ import { User } from '@prisma/client';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -96,6 +96,31 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getProfile(@CurrentUser() user: User) {
     return this.authService.getUserById(user.id);
+  }
+
+  @Post('refresh')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Refresh access token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Token refreshed successfully',
+    schema: {
+      example: {
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        user: {
+          id: '550e8400-e29b-41d4-a716-446655440000',
+          email: 'user@example.com',
+          name: 'John Doe',
+          createdAt: '2024-01-15T10:30:00.000Z',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async refreshToken(@CurrentUser() user: User) {
+    return this.authService.refreshToken(user.id);
   }
 
   @Patch('profile')

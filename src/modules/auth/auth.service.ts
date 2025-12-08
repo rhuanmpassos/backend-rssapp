@@ -36,7 +36,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
     // Check if user already exists
@@ -135,6 +135,30 @@ export class AuthService {
     });
   }
 
+  async refreshToken(userId: string): Promise<AuthResponse> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    this.logger.log(`Token refreshed for: ${user.email}`);
+
+    const accessToken = this.generateToken(user.id, user.email);
+
+    return {
+      accessToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        createdAt: user.createdAt,
+      },
+    };
+  }
+
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     // If email is being changed, check if new email is available
     if (dto.email) {
@@ -225,10 +249,10 @@ export class AuthService {
     await this.prisma.$transaction(async (tx) => {
       // Delete push tokens
       await tx.pushToken.deleteMany({ where: { userId } });
-      
+
       // Delete subscriptions
       await tx.subscription.deleteMany({ where: { userId } });
-      
+
       // Delete user
       await tx.user.delete({ where: { id: userId } });
     });

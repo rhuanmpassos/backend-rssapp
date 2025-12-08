@@ -94,6 +94,25 @@ let AuthService = AuthService_1 = class AuthService {
             },
         });
     }
+    async refreshToken(userId) {
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+        });
+        if (!user) {
+            throw new common_1.UnauthorizedException('User not found');
+        }
+        this.logger.log(`Token refreshed for: ${user.email}`);
+        const accessToken = this.generateToken(user.id, user.email);
+        return {
+            accessToken,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                createdAt: user.createdAt,
+            },
+        };
+    }
     async updateProfile(userId, dto) {
         if (dto.email) {
             const existingUser = await this.prisma.user.findUnique({

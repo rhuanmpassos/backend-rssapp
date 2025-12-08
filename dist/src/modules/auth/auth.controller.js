@@ -36,6 +36,9 @@ let AuthController = class AuthController {
     async getProfile(user) {
         return this.authService.getUserById(user.id);
     }
+    async refreshToken(user) {
+        return this.authService.refreshToken(user.id);
+    }
     async updateProfile(user, dto) {
         return this.authService.updateProfile(user.id, dto);
     }
@@ -121,6 +124,33 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "getProfile", null);
+__decorate([
+    (0, common_1.Post)('refresh'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({ summary: 'Refresh access token' }),
+    (0, swagger_1.ApiResponse)({
+        status: 200,
+        description: 'Token refreshed successfully',
+        schema: {
+            example: {
+                accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                user: {
+                    id: '550e8400-e29b-41d4-a716-446655440000',
+                    email: 'user@example.com',
+                    name: 'John Doe',
+                    createdAt: '2024-01-15T10:30:00.000Z',
+                },
+            },
+        },
+    }),
+    (0, swagger_1.ApiResponse)({ status: 401, description: 'Unauthorized' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "refreshToken", null);
 __decorate([
     (0, common_1.Patch)('profile'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
